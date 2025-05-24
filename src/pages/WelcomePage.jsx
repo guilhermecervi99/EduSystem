@@ -2,11 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNotification } from '../context/NotificationContext';
 
-console.log('🏠 WelcomePage INTEGRATED module loading...');
-
 const WelcomePage = () => {
-  console.log('🏠 WelcomePage INTEGRATED component rendering');
-  
   const [showLogin, setShowLogin] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
@@ -21,6 +17,43 @@ const WelcomePage = () => {
   const { login, register, error: authError, clearError } = useAuth();
   const { showSuccess, showError, showInfo } = useNotification();
 
+  // ✅ CAPTURA GLOBAL DE ERROS
+  useEffect(() => {
+    const errorHandler = (e) => {
+      console.error('🚨 ERRO GLOBAL CAPTURADO:', e.error);
+      console.error('🚨 Stack:', e.error?.stack);
+      // Salvar erro no localStorage para sobreviver ao reload
+      localStorage.setItem('lastError', JSON.stringify({
+        message: e.error?.message,
+        stack: e.error?.stack,
+        timestamp: new Date().toISOString()
+      }));
+    };
+
+    const rejectionHandler = (e) => {
+      console.error('🚨 PROMISE REJEITADA:', e.reason);
+      localStorage.setItem('lastRejection', JSON.stringify({
+        reason: e.reason?.toString(),
+        timestamp: new Date().toISOString()
+      }));
+    };
+
+    window.addEventListener('error', errorHandler);
+    window.addEventListener('unhandledrejection', rejectionHandler);
+
+    // Verificar se há erros anteriores
+    const lastError = localStorage.getItem('lastError');
+    if (lastError) {
+      console.log('📋 Erro anterior encontrado:', JSON.parse(lastError));
+      localStorage.removeItem('lastError');
+    }
+
+    return () => {
+      window.removeEventListener('error', errorHandler);
+      window.removeEventListener('unhandledrejection', rejectionHandler);
+    };
+  }, []);
+
   // Animação de entrada
   useEffect(() => {
     setTimeout(() => setIsVisible(true), 100);
@@ -32,41 +65,96 @@ const WelcomePage = () => {
     setErrors({});
   }, [showLogin, showRegister, clearError]);
 
-  // Handlers para login
+  // ✅ FUNÇÃO DE LOGIN COM DEBUG EXTREMO
   const handleLoginSubmit = async (e) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setErrors({});
+    // Salvar logs no localStorage para sobreviver ao reload
+    const saveLog = (message, data = {}) => {
+      const logs = JSON.parse(localStorage.getItem('loginLogs') || '[]');
+      logs.push({ 
+        timestamp: new Date().toISOString(), 
+        message, 
+        data: JSON.stringify(data) 
+      });
+      localStorage.setItem('loginLogs', JSON.stringify(logs));
+      console.log(message, data);
+    };
 
-    console.log('🔑 Tentando fazer login com:', loginData.email);
-
+    saveLog('🚨 handleLoginSubmit INICIADO!', { event: e.type });
+    
     try {
-      // ✅ CORREÇÃO: API espera 'username', não 'email'
-      const result = await login({
-        username: loginData.email, // API usa 'username' para o campo email
+      saveLog('🛑 Chamando preventDefault...');
+      e.preventDefault();
+      e.stopPropagation();
+      saveLog('✅ preventDefault executado');
+      
+      saveLog('🔑 Dados de login:', { 
+        email: loginData.email, 
+        hasPassword: !!loginData.password 
+      });
+      
+      // Verificar se função login existe
+      if (typeof login !== 'function') {
+        saveLog('❌ ERRO: login não é uma função!', { login: typeof login });
+        throw new Error('Função login não está disponível');
+      }
+      
+      saveLog('⏳ Definindo isLoading...');
+      setIsLoading(true);
+      setErrors({});
+      
+      saveLog('🚀 Chamando função login...');
+      
+      // Timeout para evitar travamento
+      const loginPromise = login({
+        username: loginData.email,
         password: loginData.password
       });
+      
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Login timeout')), 10000)
+      );
+      
+      const result = await Promise.race([loginPromise, timeoutPromise]);
+      
+      saveLog('📦 Resultado recebido:', result);
 
-      if (result.success) {
-        console.log('✅ Login realizado com sucesso!');
-        showSuccess(`Bem-vindo de volta, ${result.user.email}!`);
-        // O AuthContext vai redirecionar automaticamente
+      if (result && result.success) {
+        saveLog('✅ Login bem-sucedido!');
+        showSuccess(`Bem-vindo de volta!`);
       } else {
-        console.log('❌ Erro no login:', result.error);
-        setErrors({ login: result.error });
-        showError(result.error);
+        saveLog('❌ Login falhou:', result);
+        const errorMsg = result?.error || 'Erro desconhecido';
+        setErrors({ login: errorMsg });
+        showError(errorMsg);
       }
     } catch (error) {
-      console.error('💥 Erro no login:', error);
-      const errorMessage = 'Erro inesperado. Tente novamente.';
-      setErrors({ login: errorMessage });
-      showError(errorMessage);
+      saveLog('💥 ERRO CAPTURADO:', { 
+        message: error.message, 
+        stack: error.stack 
+      });
+      setErrors({ login: error.message });
+      showError(error.message);
     } finally {
+      saveLog('🏁 Finalizando...');
       setIsLoading(false);
     }
+    
+    saveLog('🔚 handleLoginSubmit FINALIZADO');
   };
 
-  // Handlers para registro
+  // ✅ Verificar logs anteriores na inicialização
+  useEffect(() => {
+    const loginLogs = localStorage.getItem('loginLogs');
+    if (loginLogs) {
+      console.log('📋 LOGS ANTERIORES DE LOGIN:');
+      JSON.parse(loginLogs).forEach(log => {
+        console.log(`${log.timestamp}: ${log.message}`, log.data);
+      });
+      localStorage.removeItem('loginLogs'); // Limpar após mostrar
+    }
+  }, []);
+
+  // ✅ CORREÇÃO: Register handler atualizado
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
@@ -75,30 +163,23 @@ const WelcomePage = () => {
     console.log('📝 Tentando registrar usuário:', registerData.email);
 
     // Validações básicas
-    if (registerData.password.length < 6) {
+    if (registerData.password && registerData.password.length < 6) {
       setErrors({ register: 'A senha deve ter pelo menos 6 caracteres' });
       showError('A senha deve ter pelo menos 6 caracteres');
       setIsLoading(false);
       return;
     }
 
-    if (!registerData.name.trim()) {
-      setErrors({ register: 'Nome é obrigatório' });
-      showError('Nome é obrigatório');
-      setIsLoading(false);
-      return;
-    }
-
     try {
       const result = await register({
-        name: registerData.name.trim(),
         email: registerData.email.toLowerCase().trim(),
-        password: registerData.password
+        password: registerData.password || '', // Senha opcional
+        // Backend vai usar valores padrão para age e learning_style
       });
 
       if (result.success) {
         console.log('✅ Registro realizado com sucesso!');
-        showSuccess(`Conta criada com sucesso! Bem-vindo, ${result.user.email}!`);
+        showSuccess(`Conta criada com sucesso! Bem-vindo!`);
         showInfo('Complete o mapeamento de interesses para personalizar sua experiência de aprendizado.');
         // O AuthContext vai redirecionar automaticamente
       } else {
@@ -131,8 +212,6 @@ const WelcomePage = () => {
     return re.test(email);
   };
 
-  console.log('🏠 WelcomePage INTEGRATED about to return JSX');
-
   return (
     <div style={{
       minHeight: '100vh',
@@ -142,7 +221,6 @@ const WelcomePage = () => {
       position: 'relative',
       overflow: 'hidden'
     }}>
-      {console.log('🏠 WelcomePage INTEGRATED JSX rendering')}
       
       {/* Background decorativo */}
       <div style={{
@@ -174,8 +252,6 @@ const WelcomePage = () => {
         
         {!showLogin && !showRegister && (
           <>
-            {console.log('🏠 INTEGRATED - Rendering main content')}
-            
             {/* Logo/Icon */}
             <div style={{
               width: '80px',
@@ -238,14 +314,6 @@ const WelcomePage = () => {
                 borderRadius: '15px',
                 border: '1px solid rgba(102, 126, 234, 0.2)',
                 transition: 'transform 0.3s ease, box-shadow 0.3s ease'
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.transform = 'translateY(-5px)';
-                e.target.style.boxShadow = '0 15px 30px rgba(102, 126, 234, 0.2)';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.transform = 'translateY(0px)';
-                e.target.style.boxShadow = 'none';
               }}>
                 <div style={{ fontSize: '30px', marginBottom: '15px' }}>🎯</div>
                 <h3 style={{ color: '#2d3748', marginBottom: '10px', fontSize: '1.1rem', fontWeight: '600' }}>
@@ -262,14 +330,6 @@ const WelcomePage = () => {
                 borderRadius: '15px',
                 border: '1px solid rgba(118, 75, 162, 0.2)',
                 transition: 'transform 0.3s ease, box-shadow 0.3s ease'
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.transform = 'translateY(-5px)';
-                e.target.style.boxShadow = '0 15px 30px rgba(118, 75, 162, 0.2)';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.transform = 'translateY(0px)';
-                e.target.style.boxShadow = 'none';
               }}>
                 <div style={{ fontSize: '30px', marginBottom: '15px' }}>🏆</div>
                 <h3 style={{ color: '#2d3748', marginBottom: '10px', fontSize: '1.1rem', fontWeight: '600' }}>
@@ -286,14 +346,6 @@ const WelcomePage = () => {
                 borderRadius: '15px',
                 border: '1px solid rgba(34, 197, 94, 0.2)',
                 transition: 'transform 0.3s ease, box-shadow 0.3s ease'
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.transform = 'translateY(-5px)';
-                e.target.style.boxShadow = '0 15px 30px rgba(34, 197, 94, 0.2)';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.transform = 'translateY(0px)';
-                e.target.style.boxShadow = 'none';
               }}>
                 <div style={{ fontSize: '30px', marginBottom: '15px' }}>🤖</div>
                 <h3 style={{ color: '#2d3748', marginBottom: '10px', fontSize: '1.1rem', fontWeight: '600' }}>
@@ -302,42 +354,6 @@ const WelcomePage = () => {
                 <p style={{ color: '#718096', fontSize: '0.9rem', lineHeight: '1.5' }}>
                   IA avançada para tirar dúvidas e gerar conteúdo personalizado
                 </p>
-              </div>
-            </div>
-
-            {/* Benefícios Adicionais */}
-            <div style={{
-              background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%)',
-              padding: '25px',
-              borderRadius: '15px',
-              marginBottom: '40px',
-              border: '1px solid rgba(102, 126, 234, 0.1)'
-            }}>
-              <h3 style={{ color: '#2d3748', marginBottom: '20px', fontSize: '1.2rem', fontWeight: '600' }}>
-                📚 O que você vai encontrar:
-              </h3>
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                gap: '15px',
-                textAlign: 'left'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontSize: '16px' }}>📊</span>
-                  <span style={{ color: '#4a5568', fontSize: '0.9rem' }}>Dashboard personalizado</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontSize: '16px' }}>📝</span>
-                  <span style={{ color: '#4a5568', fontSize: '0.9rem' }}>Projetos práticos</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontSize: '16px' }}>📈</span>
-                  <span style={{ color: '#4a5568', fontSize: '0.9rem' }}>Acompanhamento de progresso</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontSize: '16px' }}>🎓</span>
-                  <span style={{ color: '#4a5568', fontSize: '0.9rem' }}>Recursos educacionais</span>
-                </div>
               </div>
             </div>
             
@@ -350,10 +366,7 @@ const WelcomePage = () => {
               alignItems: 'center'
             }}>
               <button
-                onClick={() => {
-                  console.log('🆕 INTEGRATED - Começar Agora clicked');
-                  setShowRegister(true);
-                }}
+                onClick={() => setShowRegister(true)}
                 style={{
                   background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                   color: 'white',
@@ -380,10 +393,7 @@ const WelcomePage = () => {
               </button>
               
               <button
-                onClick={() => {
-                  console.log('🔑 INTEGRATED - Já tenho conta clicked');
-                  setShowLogin(true);
-                }}
+                onClick={() => setShowLogin(true)}
                 style={{
                   backgroundColor: 'transparent',
                   color: '#667eea',
@@ -430,7 +440,6 @@ const WelcomePage = () => {
             margin: '0 auto',
             animation: 'slideIn 0.4s ease-out'
           }}>
-            {console.log('🔑 INTEGRATED - Rendering login')}
             <form onSubmit={handleLoginSubmit}>
               <div style={{ 
                 background: 'linear-gradient(135deg, rgba(251, 191, 36, 0.1) 0%, rgba(245, 158, 11, 0.1) 100%)',
@@ -483,7 +492,7 @@ const WelcomePage = () => {
                   </div>
                 )}
 
-                {/* Formulário de Login */}
+                {/* Email Field */}
                 <div style={{ marginBottom: '25px', textAlign: 'left' }}>
                   <label style={{ 
                     display: 'block', 
@@ -496,7 +505,7 @@ const WelcomePage = () => {
                   </label>
                   <input 
                     type="email"
-                    placeholder="seu@email.com"
+                    placeholder="test@test.com"
                     value={loginData.email}
                     onChange={(e) => setLoginData({...loginData, email: e.target.value})}
                     required
@@ -514,13 +523,9 @@ const WelcomePage = () => {
                     onFocus={(e) => e.target.style.borderColor = '#fbbf24'}
                     onBlur={(e) => e.target.style.borderColor = !validateEmail(loginData.email) && loginData.email ? 'rgba(239, 68, 68, 0.3)' : 'rgba(251, 191, 36, 0.3)'}
                   />
-                  {!validateEmail(loginData.email) && loginData.email && (
-                    <p style={{ color: '#dc2626', fontSize: '0.8rem', marginTop: '4px' }}>
-                      Email inválido
-                    </p>
-                  )}
                 </div>
 
+                {/* Password Field */}
                 <div style={{ marginBottom: '30px', textAlign: 'left' }}>
                   <label style={{ 
                     display: 'block', 
@@ -529,14 +534,13 @@ const WelcomePage = () => {
                     fontWeight: '600',
                     fontSize: '0.9rem'
                   }}>
-                    Senha
+                    Senha (opcional)
                   </label>
                   <input 
                     type="password"
-                    placeholder="••••••••"
+                    placeholder="test123"
                     value={loginData.password}
                     onChange={(e) => setLoginData({...loginData, password: e.target.value})}
-                    required
                     disabled={isLoading}
                     style={{
                       width: '100%',
@@ -551,21 +555,24 @@ const WelcomePage = () => {
                     onFocus={(e) => e.target.style.borderColor = '#fbbf24'}
                     onBlur={(e) => e.target.style.borderColor = 'rgba(251, 191, 36, 0.3)'}
                   />
+                  <p style={{ color: '#d97706', fontSize: '0.8rem', marginTop: '4px' }}>
+                    Use: test@test.com / test123
+                  </p>
                 </div>
 
                 <button
                   type="submit"
-                  disabled={isLoading || !validateEmail(loginData.email) || !loginData.password}
+                  disabled={isLoading || !validateEmail(loginData.email)}
                   style={{
                     width: '100%',
-                    background: (isLoading || !validateEmail(loginData.email) || !loginData.password) ? '#d1d5db' : 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)',
+                    background: (isLoading || !validateEmail(loginData.email)) ? '#d1d5db' : 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)',
                     color: 'white',
                     padding: '15px',
                     fontSize: '1.1rem',
                     fontWeight: '600',
                     border: 'none',
                     borderRadius: '10px',
-                    cursor: (isLoading || !validateEmail(loginData.email) || !loginData.password) ? 'not-allowed' : 'pointer',
+                    cursor: (isLoading || !validateEmail(loginData.email)) ? 'not-allowed' : 'pointer',
                     marginBottom: '20px',
                     transition: 'transform 0.3s ease',
                     display: 'flex',
@@ -573,8 +580,6 @@ const WelcomePage = () => {
                     justifyContent: 'center',
                     gap: '10px'
                   }}
-                  onMouseEnter={(e) => !(isLoading || !validateEmail(loginData.email) || !loginData.password) && (e.target.style.transform = 'translateY(-2px)')}
-                  onMouseLeave={(e) => !(isLoading || !validateEmail(loginData.email) || !loginData.password) && (e.target.style.transform = 'translateY(0px)')}
                 >
                   {isLoading ? (
                     <>
@@ -608,8 +613,6 @@ const WelcomePage = () => {
                     fontSize: '1rem',
                     transition: 'color 0.3s ease'
                   }}
-                  onMouseEnter={(e) => !isLoading && (e.target.style.color = '#92400e')}
-                  onMouseLeave={(e) => !isLoading && (e.target.style.color = '#d97706')}
                 >
                   ← Voltar ao início
                 </button>
@@ -624,7 +627,6 @@ const WelcomePage = () => {
             margin: '0 auto',
             animation: 'slideIn 0.4s ease-out'
           }}>
-            {console.log('📝 INTEGRATED - Rendering register')}
             <form onSubmit={handleRegisterSubmit}>
               <div style={{ 
                 background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(16, 185, 129, 0.1) 100%)',
@@ -677,39 +679,7 @@ const WelcomePage = () => {
                   </div>
                 )}
 
-                {/* Formulário de Registro */}
-                <div style={{ marginBottom: '20px', textAlign: 'left' }}>
-                  <label style={{ 
-                    display: 'block', 
-                    marginBottom: '8px', 
-                    color: '#065f46',
-                    fontWeight: '600',
-                    fontSize: '0.9rem'
-                  }}>
-                    Nome completo *
-                  </label>
-                  <input 
-                    type="text"
-                    placeholder="Seu nome"
-                    value={registerData.name}
-                    onChange={(e) => setRegisterData({...registerData, name: e.target.value})}
-                    required
-                    disabled={isLoading}
-                    style={{
-                      width: '100%',
-                      padding: '12px 16px',
-                      border: `2px solid ${!registerData.name.trim() && registerData.name ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)'}`,
-                      borderRadius: '10px',
-                      fontSize: '1rem',
-                      backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                      transition: 'border-color 0.3s ease',
-                      opacity: isLoading ? 0.7 : 1
-                    }}
-                    onFocus={(e) => e.target.style.borderColor = '#22c55e'}
-                    onBlur={(e) => e.target.style.borderColor = !registerData.name.trim() && registerData.name ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)'}
-                  />
-                </div>
-
+                {/* Email Field */}
                 <div style={{ marginBottom: '20px', textAlign: 'left' }}>
                   <label style={{ 
                     display: 'block', 
@@ -740,13 +710,9 @@ const WelcomePage = () => {
                     onFocus={(e) => e.target.style.borderColor = '#22c55e'}
                     onBlur={(e) => e.target.style.borderColor = !validateEmail(registerData.email) && registerData.email ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)'}
                   />
-                  {!validateEmail(registerData.email) && registerData.email && (
-                    <p style={{ color: '#dc2626', fontSize: '0.8rem', marginTop: '4px' }}>
-                      Email inválido
-                    </p>
-                  )}
                 </div>
 
+                {/* Password Field */}
                 <div style={{ marginBottom: '30px', textAlign: 'left' }}>
                   <label style={{ 
                     display: 'block', 
@@ -755,14 +721,13 @@ const WelcomePage = () => {
                     fontWeight: '600',
                     fontSize: '0.9rem'
                   }}>
-                    Senha * (mínimo 6 caracteres)
+                    Senha (opcional)
                   </label>
                   <input 
                     type="password"
                     placeholder="••••••••"
                     value={registerData.password}
                     onChange={(e) => setRegisterData({...registerData, password: e.target.value})}
-                    required
                     disabled={isLoading}
                     style={{
                       width: '100%',
@@ -777,26 +742,24 @@ const WelcomePage = () => {
                     onFocus={(e) => e.target.style.borderColor = '#22c55e'}
                     onBlur={(e) => e.target.style.borderColor = registerData.password.length > 0 && registerData.password.length < 6 ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)'}
                   />
-                  {registerData.password.length > 0 && registerData.password.length < 6 && (
-                    <p style={{ color: '#dc2626', fontSize: '0.8rem', marginTop: '4px' }}>
-                      Senha deve ter pelo menos 6 caracteres
-                    </p>
-                  )}
+                  <p style={{ color: '#059669', fontSize: '0.8rem', marginTop: '4px' }}>
+                    A senha é opcional. Se informada, deve ter pelo menos 6 caracteres
+                  </p>
                 </div>
 
                 <button
                   type="submit"
-                  disabled={isLoading || !validateEmail(registerData.email) || !registerData.password || registerData.password.length < 6 || !registerData.name.trim()}
+                  disabled={isLoading || !validateEmail(registerData.email) || (registerData.password && registerData.password.length < 6)}
                   style={{
                     width: '100%',
-                    background: (isLoading || !validateEmail(registerData.email) || !registerData.password || registerData.password.length < 6 || !registerData.name.trim()) ? '#d1d5db' : 'linear-gradient(135deg, #22c55e 0%, #10b981 100%)',
+                    background: (isLoading || !validateEmail(registerData.email) || (registerData.password && registerData.password.length < 6)) ? '#d1d5db' : 'linear-gradient(135deg, #22c55e 0%, #10b981 100%)',
                     color: 'white',
                     padding: '15px',
                     fontSize: '1.1rem',
                     fontWeight: '600',
                     border: 'none',
                     borderRadius: '10px',
-                    cursor: (isLoading || !validateEmail(registerData.email) || !registerData.password || registerData.password.length < 6 || !registerData.name.trim()) ? 'not-allowed' : 'pointer',
+                    cursor: (isLoading || !validateEmail(registerData.email) || (registerData.password && registerData.password.length < 6)) ? 'not-allowed' : 'pointer',
                     marginBottom: '20px',
                     transition: 'transform 0.3s ease',
                     display: 'flex',
@@ -804,8 +767,6 @@ const WelcomePage = () => {
                     justifyContent: 'center',
                     gap: '10px'
                   }}
-                  onMouseEnter={(e) => !(isLoading || !validateEmail(registerData.email) || !registerData.password || registerData.password.length < 6 || !registerData.name.trim()) && (e.target.style.transform = 'translateY(-2px)')}
-                  onMouseLeave={(e) => !(isLoading || !validateEmail(registerData.email) || !registerData.password || registerData.password.length < 6 || !registerData.name.trim()) && (e.target.style.transform = 'translateY(0px)')}
                 >
                   {isLoading ? (
                     <>
@@ -839,8 +800,6 @@ const WelcomePage = () => {
                     fontSize: '1rem',
                     transition: 'color 0.3s ease'
                   }}
-                  onMouseEnter={(e) => !isLoading && (e.target.style.color = '#065f46')}
-                  onMouseLeave={(e) => !isLoading && (e.target.style.color = '#059669')}
                 >
                   ← Voltar ao início
                 </button>
@@ -888,5 +847,4 @@ const WelcomePage = () => {
   );
 };
 
-console.log('✅ WelcomePage INTEGRATED module loaded');
 export default WelcomePage;

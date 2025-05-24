@@ -3,13 +3,13 @@ import { useApp } from '../../context/AppContext';
 import Header from './Header';
 import Sidebar from './Sidebar';
 
-const Layout = ({ children }) => {
+const Layout = ({ children, currentView, onNavigate }) => {
   const { sidebarOpen, setSidebar } = useApp();
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Sidebar */}
-      <Sidebar />
+      <Sidebar currentView={currentView} onNavigate={onNavigate} />
 
       {/* Overlay para mobile */}
       {sidebarOpen && (

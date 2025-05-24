@@ -200,20 +200,31 @@ export function AuthProvider({ children }) {
     initializeAuth();
   }, []); // Array vazio - executa apenas uma vez
 
-  // Função de login
+  // ✅ FUNÇÃO LOGIN CORRIGIDA - substituir no AuthContext.jsx
+
   const login = useCallback(async (credentials) => {
-    console.log('🔑 Login attempt:', credentials.email);
+    console.log('🔑 Login attempt:', credentials.username);
     dispatch({ type: AUTH_ACTIONS.AUTH_START });
 
     try {
       const loginResponse = await authAPI.login(credentials);
       const { access_token, user_id } = loginResponse;
 
-      console.log('✅ Login successful, fetching user data...');
+      console.log('✅ Login successful, token received:', !!access_token);
 
-      // Buscar dados completos do usuário
+      // ✅ CORREÇÃO: Salvar token IMEDIATAMENTE antes de buscar dados
+      console.log('💾 Saving token first...');
+      if (access_token) {
+        localStorage.setItem(STORAGE_KEYS.TOKEN, access_token);
+        console.log('✅ Token saved to localStorage');
+      }
+
+      console.log('👤 Now fetching user data...');
+      // ✅ AGORA buscar dados do usuário (com token já salvo)
       const userData = await authAPI.getCurrentUser();
+      console.log('✅ User data received:', userData.email);
 
+      // ✅ Salvar dados do usuário também
       saveToStorage(access_token, userData);
 
       dispatch({
@@ -237,13 +248,21 @@ export function AuthProvider({ children }) {
     }
   }, [saveToStorage]);
 
-  // Função de registro
+  // Função de registro - CORRIGIDA para usar API correta
   const register = useCallback(async (userData) => {
     console.log('📝 Register attempt:', userData.email);
     dispatch({ type: AUTH_ACTIONS.AUTH_START });
 
     try {
-      const registerResponse = await authAPI.register(userData);
+      // ✅ CORREÇÃO: Ajustar dados para API do backend
+      const registerData = {
+        email: userData.email,
+        password: userData.password,
+        age: 14, // valor padrão
+        learning_style: 'didático' // valor padrão
+      };
+
+      const registerResponse = await authAPI.register(registerData);
       const { access_token, user_id } = registerResponse;
 
       console.log('✅ Registration successful, fetching user data...');
@@ -339,9 +358,10 @@ export function AuthProvider({ children }) {
     return true;
   }, [state.user]);
 
-  // Função para verificar se completou o mapeamento
+  // ✅ CORREÇÃO: Função para verificar se completou o mapeamento
   const hasCompletedMapping = useCallback(() => {
-    const result = state.user?.current_track ? true : false;
+    // Verificar se o usuário tem current_track definido
+    const result = !!(state.user?.current_track);
     console.log('🗺️ hasCompletedMapping:', result, 'current_track:', state.user?.current_track);
     return result;
   }, [state.user?.current_track]);
@@ -368,7 +388,8 @@ export function AuthProvider({ children }) {
     isAuthenticated: state.isAuthenticated,
     isLoading: state.isLoading,
     hasUser: !!state.user,
-    userEmail: state.user?.email
+    userEmail: state.user?.email,
+    hasCompletedMapping: hasCompletedMapping()
   });
 
   return (

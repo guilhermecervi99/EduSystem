@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { 
   Home, 
   BookOpen, 
@@ -11,17 +11,17 @@ import {
   ChevronLeft,
   ChevronRight,
   Zap,
-  TrendingUp
+  TrendingUp,
+  MessageCircle
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useApp } from '../../context/AppContext';
 
-const Sidebar = () => {
+const Sidebar = ({ currentView, onNavigate }) => {
   const { user } = useAuth();
   const { sidebarOpen, setSidebar } = useApp();
-  const [activeSection, setActiveSection] = useState('dashboard');
 
-  // Menu items
+  // Menu items principais
   const menuItems = [
     {
       id: 'dashboard',
@@ -57,6 +57,12 @@ const Sidebar = () => {
       path: '/resources',
     },
     {
+      id: 'teacher',
+      label: 'Professor Virtual',
+      icon: MessageCircle,
+      path: '/teacher',
+    },
+    {
       id: 'mapping',
       label: 'Mapeamento',
       icon: Target,
@@ -80,9 +86,8 @@ const Sidebar = () => {
   ];
 
   const handleMenuClick = (item) => {
-    setActiveSection(item.id);
-    // Em uma implementação com React Router, você faria navigate(item.path)
-    // Por agora, apenas mudamos o estado local
+    console.log(`🧭 Sidebar: Navegando para ${item.id}`);
+    onNavigate?.(item.id);
     
     // Fechar sidebar no mobile após clique
     if (window.innerWidth < 1024) {
@@ -163,7 +168,7 @@ const Sidebar = () => {
       <nav className="flex-1 px-4 py-4 space-y-2">
         {menuItems.map((item) => {
           const Icon = item.icon;
-          const isActive = activeSection === item.id;
+          const isActive = currentView === item.id;
           
           return (
             <button
@@ -200,7 +205,7 @@ const Sidebar = () => {
       <div className="px-4 py-4 border-t border-gray-200 space-y-2">
         {bottomMenuItems.map((item) => {
           const Icon = item.icon;
-          const isActive = activeSection === item.id;
+          const isActive = currentView === item.id;
           
           return (
             <button

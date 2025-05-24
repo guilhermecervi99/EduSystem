@@ -1,3 +1,5 @@
+
+// App.jsx - VERSÃO ATUALIZADA
 import React from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppProvider } from './context/AppContext';
@@ -8,32 +10,31 @@ import WelcomePage from './pages/WelcomePage';
 import MappingPage from './pages/MappingPage';
 import DashboardPage from './pages/DashboardPage';
 import LearningPage from './pages/LearningPage';
+import AchievementsPage from './pages/AchievementsPage';
+import ProjectsPage from './pages/ProjectsPage';
+import ResourcesPage from './pages/ResourcesPage';
+import TeacherPage from './pages/TeacherPage';
 
 // Components
 import Layout from './components/layout/Layout';
 import Loading from './components/common/Loading';
 
+// Navigation Hook
+import { useNavigation } from './hooks/useNavigation';
+
 // Main App Router Component
 function AppRouter() {
-  const { isAuthenticated, isLoading, hasCompletedMapping } = useAuth();
+  const { isAuthenticated, isLoading, hasCompletedMapping, user } = useAuth();
 
-  // ✅ DEBUG DETALHADO
+  // ✅ DEBUG MELHORADO
   console.log('🔍 AppRouter Debug:', { 
     isAuthenticated, 
     isLoading, 
     hasCompletedMapping: hasCompletedMapping(),
+    userEmail: user?.email,
+    currentTrack: user?.current_track,
     timestamp: new Date().toISOString()
   });
-
-  console.log('🔍 AppRouter State:', { 
-    isAuthenticated, 
-    isLoading, 
-    hasCompletedMapping: hasCompletedMapping() 
-  });
-
-  console.log('🔍 isLoading type:', typeof isLoading);
-  console.log('🔍 isLoading === true:', isLoading === true);
-  console.log('🔍 isLoading === false:', isLoading === false);
 
   // Show loading screen while checking authentication
   if (isLoading) {
@@ -48,15 +49,15 @@ function AppRouter() {
     );
   }
 
-  console.log('✅ Passou do if(isLoading), continuando...');
-
   // If not authenticated, show welcome page
   if (!isAuthenticated) {
     console.log('🚪 Not authenticated, showing welcome page');
     return <WelcomePage />;
   }
 
-  // If authenticated but hasn't completed mapping, show mapping page
+  console.log('✅ User is authenticated, checking mapping...');
+
+  // ✅ CORREÇÃO: Verificar se completou mapeamento antes de mostrar app principal
   if (!hasCompletedMapping()) {
     console.log('🗺️ No mapping completed, showing mapping page');
     return (
@@ -66,42 +67,45 @@ function AppRouter() {
     );
   }
 
-  // ✅ CORREÇÃO: Authenticated and mapped - show main app
-  console.log('✅ Fully authenticated, showing main app');
-  return (
-    <Layout>
-      <AppRoutes />
-    </Layout>
-  );
+  // ✅ Authenticated and mapped - show main app
+  console.log('✅ Fully authenticated and mapped, showing main app');
+  return <AppRoutes />;
 }
 
 // Routes for authenticated users
 function AppRoutes() {
-  const [currentView, setCurrentView] = React.useState('dashboard');
+  const { currentView, navigate } = useNavigation('dashboard');
 
   console.log('🧭 Current view:', currentView);
 
-  // useCallback para evitar recriação da função
-  const handleNavigate = React.useCallback((view) => {
-    console.log(`🧭 Navegando para: ${view}`);
-    setCurrentView(view);
-  }, []);
-
-  // This could be replaced with React Router for more complex routing
-  const renderView = React.useCallback(() => {
+  // Render view baseado no estado atual
+  const renderView = () => {
     switch (currentView) {
       case 'dashboard':
-        return <DashboardPage onNavigate={handleNavigate} />;
+        return <DashboardPage onNavigate={navigate} />;
       case 'learning':
-        return <LearningPage onNavigate={handleNavigate} />;
+        return <LearningPage onNavigate={navigate} />;
+      case 'achievements':
+        return <AchievementsPage onNavigate={navigate} />;
+      case 'projects':
+        return <ProjectsPage onNavigate={navigate} />;
+      case 'resources':
+        return <ResourcesPage onNavigate={navigate} />;
       case 'mapping':
-        return <MappingPage onNavigate={handleNavigate} />;
+        return <MappingPage onNavigate={navigate} />;
+      case 'teacher':
+        return <TeacherPage onNavigate={navigate} />;
       default:
-        return <DashboardPage onNavigate={handleNavigate} />;
+        console.warn(`View desconhecida: ${currentView}, redirecionando para dashboard`);
+        return <DashboardPage onNavigate={navigate} />;
     }
-  }, [currentView, handleNavigate]);
+  };
 
-  return renderView();
+  return (
+    <Layout currentView={currentView} onNavigate={navigate}>
+      {renderView()}
+    </Layout>
+  );
 }
 
 // Error Boundary para capturar erros
@@ -153,7 +157,7 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-// ✅ CORREÇÃO: Main App Component with CORRECT provider hierarchy
+// ✅ Main App Component with CORRECT provider hierarchy
 function App() {
   // Debug de renders
   const renderCount = React.useRef(0);
