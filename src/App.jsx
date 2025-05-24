@@ -6,11 +6,13 @@ import { AppProvider } from './context/AppContext';
 import { NotificationProvider } from './context/NotificationContext';
 
 // Pages
+import AchievementsPage from './pages/AchievementsPage';
+import AreaSelectionPage from './pages/AreaSelectionPage';
+import FeedbackPage from './pages/FeedbackPage';
 import WelcomePage from './pages/WelcomePage';
 import MappingPage from './pages/MappingPage';
 import DashboardPage from './pages/DashboardPage';
 import LearningPage from './pages/LearningPage';
-import AchievementsPage from './pages/AchievementsPage';
 import ProjectsPage from './pages/ProjectsPage';
 import ResourcesPage from './pages/ResourcesPage';
 import TeacherPage from './pages/TeacherPage';
@@ -85,6 +87,10 @@ function AppRoutes() {
         return <DashboardPage onNavigate={navigate} />;
       case 'learning':
         return <LearningPage onNavigate={navigate} />;
+      case 'areas':  // Nova página
+        return <AreaSelectionPage onNavigate={navigate} />;
+      case 'feedback':  // Nova página
+        return <FeedbackPage onNavigate={navigate} />;
       case 'achievements':
         return <AchievementsPage onNavigate={navigate} />;
       case 'projects':

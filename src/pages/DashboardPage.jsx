@@ -1,3 +1,4 @@
+// DashboardPage.jsx - VERSÃO MELHORADA
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { 
   BookOpen, 
@@ -11,11 +12,23 @@ import {
   Zap,
   Trophy,
   Play,
-  CheckCircle
+  CheckCircle,
+  FileText,
+  Map,
+  BarChart3,
+  RefreshCw,
+  Settings,
+  Users,
+  Brain,
+  Lightbulb,
+  Timer,
+  Activity,
+  PlusCircle
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
-import { progressAPI } from '../services/api';
+import api, { progressAPI, llmAPI } from '../services/api';
+import { useNotification } from '../context/NotificationContext';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import Loading from '../components/common/Loading';
@@ -33,54 +46,77 @@ const DashboardPage = ({ onNavigate }) => {
     loadStatistics, 
     loadNextSteps 
   } = useApp();
+  const { showSuccess, showError } = useNotification();
   
   const [currentContent, setCurrentContent] = useState(null);
   const [loadingContent, setLoadingContent] = useState(false);
   const [recentBadges, setRecentBadges] = useState([]);
+  const [generatingContent, setGeneratingContent] = useState(false);
+  const [todayProgress, setTodayProgress] = useState(null);
+  const [weeklyGoal, setWeeklyGoal] = useState({ target: 5, completed: 0 });
   
-  // ✅ CORREÇÃO: useRef para evitar múltiplas chamadas
-  const contentLoadedRef = useRef(false);
-  const dashboardInitializedRef = useRef(false);
+  // ✅ CORREÇÃO CRÍTICA: useRef para controlar carregamentos únicos
+  const loadedContentRef = useRef(false);
+  const lastProgressIdRef = useRef(null);
 
-  // ✅ CORREÇÃO: useCallback para carregar conteúdo atual
+  // ✅ CORREÇÃO: Função para carregar conteúdo APENAS quando necessário
   const loadCurrentContent = useCallback(async () => {
-    if (!currentProgress || contentLoadedRef.current || loadingContent) {
+    // Evitar múltiplas chamadas
+    if (!currentProgress || loadingContent || loadedContentRef.current) {
       return;
     }
 
-    contentLoadedRef.current = true;
+    // Verificar se o progresso mudou
+    const progressId = `${currentProgress.area}-${currentProgress.subarea}-${currentProgress.progress_percentage}`;
+    if (lastProgressIdRef.current === progressId) {
+      return; // Mesmo progresso, não recarregar
+    }
+
+    loadedContentRef.current = true;
     setLoadingContent(true);
     
     try {
+      console.log('📚 Carregando conteúdo atual...');
       const content = await progressAPI.getCurrentContent();
       setCurrentContent(content);
+      lastProgressIdRef.current = progressId;
+      console.log('✅ Conteúdo carregado com sucesso');
     } catch (error) {
-      console.error('Erro ao carregar conteúdo atual:', error);
+      console.error('❌ Erro ao carregar conteúdo:', error);
     } finally {
       setLoadingContent(false);
-      contentLoadedRef.current = false;
+      // Resetar flag após delay para permitir próximo carregamento se necessário
+      setTimeout(() => {
+        loadedContentRef.current = false;
+      }, 5000);
     }
   }, [currentProgress, loadingContent]);
 
-  // ✅ CORREÇÃO: useCallback para extrair badges recentes
+  // ✅ CORREÇÃO: useCallback para extrair badges recentes SEM causar re-renders
   const updateRecentBadges = useCallback(() => {
-    if (achievements?.badge_categories) {
-      const allBadges = achievements.badge_categories.flatMap(category => category.badges);
+    if (!achievements?.badge_categories) return;
+    
+    try {
+      const allBadges = achievements.badge_categories.flatMap(category => category.badges || []);
       const recent = allBadges
         .filter(badge => badge.earned_date)
         .sort((a, b) => new Date(b.earned_date) - new Date(a.earned_date))
         .slice(0, 3);
+      
       setRecentBadges(recent);
+    } catch (error) {
+      console.error('Erro ao processar badges:', error);
+      setRecentBadges([]);
     }
-  }, [achievements]);
+  }, [achievements?.badge_categories]); // Dependência específica
 
-  // ✅ CORREÇÃO: useCallback para calcular próximo nível
+  // ✅ CORREÇÃO: useCallback estável para cálculo de nível
   const getNextLevelInfo = useCallback(() => {
     if (!user) return null;
     
     const currentXP = user.profile_xp || 0;
     const currentLevel = user.profile_level || 1;
-    const nextLevelXP = currentLevel * 100; // Simplificado
+    const nextLevelXP = currentLevel * 100;
     const progress = ((currentXP % 100) / 100) * 100;
     
     return {
@@ -89,58 +125,135 @@ const DashboardPage = ({ onNavigate }) => {
       progress,
       xpNeeded: nextLevelXP - (currentXP % 100)
     };
-  }, [user]);
+  }, [user?.profile_xp, user?.profile_level]); // Dependências específicas
 
-  // ✅ CORREÇÃO: Atualizar badges quando achievements mudar
-  useEffect(() => {
-    updateRecentBadges();
-  }, [updateRecentBadges]);
-
-  // ✅ CORREÇÃO: Carregar conteúdo quando progresso estiver disponível
-  useEffect(() => {
-    if (currentProgress && !loadingContent) {
-      loadCurrentContent();
+  // Carregar progresso do dia
+  const loadTodayProgress = useCallback(async () => {
+    try {
+      const today = await progressAPI.getTodayProgress();
+      setTodayProgress(today);
+      
+      // Atualizar meta semanal
+      const weekly = await progressAPI.getWeeklyProgress();
+      setWeeklyGoal(weekly);
+    } catch (error) {
+      console.error('Erro ao carregar progresso diário:', error);
     }
-  }, [currentProgress, loadCurrentContent, loadingContent]);
+  }, []);
 
-  // ✅ CORREÇÃO: Aguardar inicialização do AppContext
-  useEffect(() => {
-    if (!isInitialized || dashboardInitializedRef.current) {
-      return;
+  // Gerar avaliação personalizada
+  const handleGenerateAssessment = async () => {
+    setGeneratingContent(true);
+    try {
+      const assessment = await llmAPI.generateAssessment({
+        area: currentProgress?.area || user?.current_track,
+        subarea: currentProgress?.subarea || user?.current_subarea,
+        level: currentProgress?.level || 'iniciante',
+        question_count: 10
+      });
+      
+      showSuccess('Avaliação gerada com sucesso!');
+      onNavigate?.('assessment', { assessment });
+    } catch (error) {
+      showError('Erro ao gerar avaliação: ' + error.message);
+    } finally {
+      setGeneratingContent(false);
     }
+  };
 
-    dashboardInitializedRef.current = true;
-    
-    console.log('📊 Dashboard inicializado com dados do AppContext');
-    
-    // Reset flag após alguns segundos para permitir refresh manual
-    setTimeout(() => {
-      dashboardInitializedRef.current = false;
-    }, 10000);
-    
-  }, [isInitialized]);
+  // Gerar plano de estudos
+  const handleGenerateLearningPath = async () => {
+    setGeneratingContent(true);
+    try {
+      const learningPath = await llmAPI.generateLearningPath({
+        current_area: currentProgress?.area || user?.current_track,
+        current_level: currentProgress?.level || 'iniciante',
+        goals: user?.learning_goals || [],
+        time_available: 'flexible',
+        duration_weeks: 4
+      });
+      
+      showSuccess('Plano de estudos criado!');
+      onNavigate?.('learning-path', { path: learningPath });
+    } catch (error) {
+      showError('Erro ao gerar plano: ' + error.message);
+    } finally {
+      setGeneratingContent(false);
+    }
+  };
 
-  // ✅ CORREÇÃO: Função para refresh manual dos dados
+  // Gerar sessão de estudo focada
+  const handleGenerateStudySession = async () => {
+    setGeneratingContent(true);
+    try {
+      const session = await llmAPI.generateStudySession({
+        topic: currentContent?.title || 'Tópico atual',
+        duration_minutes: 30,
+        difficulty: currentProgress?.level || 'iniciante',
+        include_practice: true
+      });
+      
+      showSuccess('Sessão de estudo criada!');
+      onNavigate?.('study-session', { session });
+    } catch (error) {
+      showError('Erro ao criar sessão: ' + error.message);
+    } finally {
+      setGeneratingContent(false);
+    }
+  };
+
+  // ✅ CORREÇÃO: useCallback para refresh manual COM throttling
   const handleRefreshData = useCallback(async () => {
     try {
-      await Promise.all([
+      console.log('🔄 Refresh manual dos dados...');
+      await Promise.allSettled([
         loadProgress(true),
-        loadAchievements(true),
+        loadAchievements(true), 
         loadStatistics(true),
-        loadNextSteps()
+        loadNextSteps(),
+        loadTodayProgress()
       ]);
+      console.log('✅ Refresh concluído');
+      showSuccess('Dados atualizados!');
     } catch (error) {
-      console.error('Erro ao atualizar dados:', error);
+      console.error('❌ Erro no refresh:', error);
+      showError('Erro ao atualizar dados');
     }
-  }, [loadProgress, loadAchievements, loadStatistics, loadNextSteps]);
+  }, [loadProgress, loadAchievements, loadStatistics, loadNextSteps, loadTodayProgress, showSuccess, showError]);
+
+  // ✅ CORREÇÃO: Effect para atualizar badges APENAS quando necessário
+  useEffect(() => {
+    if (achievements?.badge_categories) {
+      updateRecentBadges();
+    }
+  }, [updateRecentBadges]); // Dependência do callback
+
+  // ✅ CORREÇÃO: Effect para carregar conteúdo APENAS quando progresso mudar
+  useEffect(() => {
+    if (currentProgress && isInitialized && !loadingContent) {
+      const progressId = `${currentProgress.area}-${currentProgress.subarea}-${currentProgress.progress_percentage}`;
+      
+      // Só carregar se o progresso realmente mudou
+      if (lastProgressIdRef.current !== progressId) {
+        loadCurrentContent();
+      }
+    }
+  }, [currentProgress?.area, currentProgress?.subarea, currentProgress?.progress_percentage, isInitialized, loadCurrentContent]);
+
+  // Carregar dados iniciais
+  useEffect(() => {
+    if (isInitialized) {
+      loadTodayProgress();
+    }
+  }, [isInitialized, loadTodayProgress]);
 
   const nextLevelInfo = getNextLevelInfo();
 
-  // ✅ CORREÇÃO: Loading mais inteligente
-  if (!isInitialized && !currentProgress && !achievements && !statistics) {
+  // ✅ CORREÇÃO: Loading mais específico
+  if (!isInitialized) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <Loading size="lg" text="Carregando dashboard..." />
+        <Loading size="lg" text="Inicializando dashboard..." />
       </div>
     );
   }
@@ -173,6 +286,12 @@ const DashboardPage = ({ onNavigate }) => {
                 <Award className="h-4 w-4" />
                 <span>{achievements?.total_badges || 0} Badges</span>
               </div>
+              {todayProgress && (
+                <div className="flex items-center space-x-1">
+                  <Activity className="h-4 w-4" />
+                  <span>{todayProgress.lessons_completed || 0} lições hoje</span>
+                </div>
+              )}
             </div>
           </div>
           
@@ -182,6 +301,7 @@ const DashboardPage = ({ onNavigate }) => {
               size="sm"
               onClick={handleRefreshData}
               className="text-sm"
+              leftIcon={<RefreshCw className="h-4 w-4" />}
             >
               Atualizar
             </Button>
@@ -257,7 +377,7 @@ const DashboardPage = ({ onNavigate }) => {
       </div>
 
       <div className="grid lg:grid-cols-3 gap-6">
-        {/* Progresso Atual */}
+        {/* Conteúdo Principal */}
         <div className="lg:col-span-2 space-y-6">
           {/* Conteúdo Atual */}
           <Card>
@@ -319,6 +439,102 @@ const DashboardPage = ({ onNavigate }) => {
             )}
           </Card>
 
+          {/* Ações Disponíveis */}
+          <Card>
+            <Card.Header>
+              <Card.Title>O que você pode fazer agora</Card.Title>
+              <Card.Subtitle>Funcionalidades inteligentes para otimizar seus estudos</Card.Subtitle>
+            </Card.Header>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                onClick={handleGenerateAssessment}
+                disabled={generatingContent}
+                className="p-4 text-left border rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                <div className="flex items-center space-x-2 mb-2">
+                  <FileText className="h-5 w-5 text-blue-600" />
+                  <h4 className="font-medium">Gerar Avaliação</h4>
+                </div>
+                <p className="text-sm text-gray-600">
+                  Teste seus conhecimentos atuais com questões personalizadas
+                </p>
+              </button>
+
+              <button
+                onClick={handleGenerateLearningPath}
+                disabled={generatingContent}
+                className="p-4 text-left border rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                <div className="flex items-center space-x-2 mb-2">
+                  <Map className="h-5 w-5 text-green-600" />
+                  <h4 className="font-medium">Plano de Estudos</h4>
+                </div>
+                <p className="text-sm text-gray-600">
+                  Gere um roteiro personalizado baseado no seu progresso
+                </p>
+              </button>
+
+              <button
+                onClick={handleGenerateStudySession}
+                disabled={generatingContent}
+                className="p-4 text-left border rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                <div className="flex items-center space-x-2 mb-2">
+                  <Timer className="h-5 w-5 text-purple-600" />
+                  <h4 className="font-medium">Sessão Focada</h4>
+                </div>
+                <p className="text-sm text-gray-600">
+                  Crie uma sessão de estudos com duração e objetivos definidos
+                </p>
+              </button>
+
+              <button
+                onClick={() => onNavigate?.('progress-details')}
+                className="p-4 text-left border rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex items-center space-x-2 mb-2">
+                  <BarChart3 className="h-5 w-5 text-orange-600" />
+                  <h4 className="font-medium">Progresso Detalhado</h4>
+                </div>
+                <p className="text-sm text-gray-600">
+                  Veja estatísticas completas e insights sobre seu aprendizado
+                </p>
+              </button>
+
+              <div className="p-4 border rounded-lg">
+                <div className="flex items-center space-x-2 mb-2">
+                  <RefreshCw className="h-5 w-5 text-indigo-600" />
+                  <h4 className="font-medium">Mudar Área</h4>
+                </div>
+                <p className="text-sm text-gray-600 mb-3">
+                  Explore outras áreas de estudo ou altere sua trilha atual
+                </p>
+                <AreaSwitcher />
+              </div>
+
+              <button
+                onClick={() => onNavigate?.('ai-tutor')}
+                className="p-4 text-left border rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex items-center space-x-2 mb-2">
+                  <Brain className="h-5 w-5 text-pink-600" />
+                  <h4 className="font-medium">Tutor IA</h4>
+                </div>
+                <p className="text-sm text-gray-600">
+                  Converse com o tutor inteligente sobre qualquer dúvida
+                </p>
+              </button>
+            </div>
+
+            {generatingContent && (
+              <div className="mt-4 flex items-center justify-center space-x-2 text-primary-600">
+                <Loading size="sm" />
+                <span className="text-sm">Gerando conteúdo inteligente...</span>
+              </div>
+            )}
+          </Card>
+
           {/* Próximos Passos */}
           <Card>
             <Card.Header>
@@ -336,15 +552,48 @@ const DashboardPage = ({ onNavigate }) => {
                 ))}
               </div>
             ) : (
-              <p className="text-gray-600 text-sm">
-                Continue estudando para receber recomendações personalizadas
-              </p>
+              <div className="text-center py-4">
+                <Lightbulb className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                <p className="text-gray-600 text-sm">
+                  Continue estudando para receber recomendações personalizadas
+                </p>
+              </div>
             )}
           </Card>
         </div>
 
         {/* Sidebar */}
         <div className="space-y-6">
+          {/* Meta Semanal */}
+          <Card>
+            <Card.Header>
+              <Card.Title>Meta da Semana</Card.Title>
+            </Card.Header>
+
+            <div className="text-center">
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-secondary-100 rounded-full mb-4">
+                <span className="text-xl font-bold text-secondary-600">
+                  {weeklyGoal.completed}
+                </span>
+              </div>
+              
+              <p className="text-sm text-gray-600 mb-2">
+                {weeklyGoal.completed} de {weeklyGoal.target} lições esta semana
+              </p>
+              
+              <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+                <div 
+                  className="bg-gradient-to-r from-secondary-600 to-success-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.min((weeklyGoal.completed / weeklyGoal.target) * 100, 100)}%` }}
+                />
+              </div>
+              
+              <p className="text-xs text-gray-500">
+                {Math.max(0, weeklyGoal.target - weeklyGoal.completed)} lições restantes
+              </p>
+            </div>
+          </Card>
+
           {/* Progresso do Nível */}
           {nextLevelInfo && (
             <Card>
@@ -418,25 +667,219 @@ const DashboardPage = ({ onNavigate }) => {
             )}
           </Card>
 
-          {/* Calendário de Estudos */}
+          {/* Ações Rápidas */}
           <Card>
             <Card.Header>
-              <Card.Title>Calendário de Estudos</Card.Title>
+              <Card.Title>Ações Rápidas</Card.Title>
             </Card.Header>
 
-            <div className="text-center py-4">
-              <Calendar className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-              <p className="text-sm text-gray-600 mb-3">
-                Defina uma rotina de estudos
-              </p>
-              <Button variant="outline" size="sm">
-                Configurar Horários
+            <div className="space-y-2">
+              <Button
+                variant="outline"
+                fullWidth
+                size="sm"
+                onClick={() => onNavigate?.('projects')}
+                leftIcon={<Target className="h-4 w-4" />}
+              >
+                Meus Projetos
+              </Button>
+              
+              <Button
+                variant="outline"
+                fullWidth
+                size="sm"
+                onClick={() => onNavigate?.('resources')}
+                leftIcon={<BookOpen className="h-4 w-4" />}
+              >
+                Recursos Extras
+              </Button>
+              
+              <Button
+                variant="outline"
+                fullWidth
+                size="sm"
+                onClick={() => onNavigate?.('community')}
+                leftIcon={<Users className="h-4 w-4" />}
+              >
+                Comunidade
+              </Button>
+
+              <Button
+                variant="outline"
+                fullWidth
+                size="sm"
+                onClick={() => onNavigate?.('settings')}
+                leftIcon={<Settings className="h-4 w-4" />}
+              >
+                Configurações
               </Button>
             </div>
           </Card>
         </div>
       </div>
     </div>
+  );
+};
+
+// Componente AreaSwitcher integrado
+const AreaSwitcher = () => {
+  const [showAreaModal, setShowAreaModal] = useState(false);
+  const [areas, setAreas] = useState([]);
+  const [selectedArea, setSelectedArea] = useState(null);
+  const [subareas, setSubareas] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const loadAreas = async () => {
+    try {
+      const response = await api.get('/content/areas');
+      setAreas(response.data.areas);
+    } catch (error) {
+      showError('Erro ao carregar áreas');
+    }
+  };
+
+  const loadSubareas = async (areaName) => {
+    setLoading(true);
+    try {
+      const response = await api.get(`/content/areas/${areaName}`);
+      setSubareas(response.data.subareas);
+      setSelectedArea(areaName);
+    } catch (error) {
+      showError('Erro ao carregar subáreas');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSwitchArea = async (subareaName) => {
+    try {
+      await progressAPI.switchTrack(selectedArea);
+      await api.post(`/content/areas/${selectedArea}/set-current`, null, {
+        params: { subarea_name: subareaName }
+      });
+      
+      updateUser({
+        current_track: selectedArea,
+        current_subarea: subareaName
+      });
+      
+      showSuccess(`Mudou para: ${selectedArea} - ${subareaName}`);
+      setShowAreaModal(false);
+      
+      // Recarregar página ou navegar
+      window.location.reload();
+    } catch (error) {
+      showError('Erro ao mudar área: ' + error.message);
+    }
+  };
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        onClick={() => {
+          setShowAreaModal(true);
+          loadAreas();
+        }}
+        leftIcon={<RefreshCw className="h-4 w-4" />}
+      >
+        Mudar Área/Subárea
+      </Button>
+
+      {showAreaModal && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex items-center justify-center min-h-screen p-4">
+            <div className="fixed inset-0 bg-black opacity-50" onClick={() => setShowAreaModal(false)} />
+            
+            <div className="relative bg-white rounded-lg max-w-4xl w-full p-6">
+              <h2 className="text-2xl font-bold mb-4">Mudar Área de Estudo</h2>
+              
+              {!selectedArea ? (
+                <>
+                  <p className="text-gray-600 mb-6">
+                    Seu progresso atual será salvo e você poderá retornar quando quiser.
+                  </p>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {areas.map((area) => (
+                      <Card
+                        key={area.name}
+                        hover
+                        clickable
+                        onClick={() => loadSubareas(area.name)}
+                      >
+                        <div className="p-4">
+                          <h3 className="font-semibold mb-2">{area.name}</h3>
+                          <p className="text-sm text-gray-600">{area.description}</p>
+                          {area.name === user?.current_track && (
+                            <span className="inline-block mt-2 text-xs bg-primary-100 text-primary-700 px-2 py-1 rounded">
+                              Área Atual
+                            </span>
+                          )}
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedArea(null);
+                      setSubareas([]);
+                    }}
+                    className="mb-4"
+                  >
+                    ← Voltar para áreas
+                  </Button>
+                  
+                  <h3 className="text-lg font-semibold mb-4">
+                    Subáreas de {selectedArea}
+                  </h3>
+                  
+                  {loading ? (
+                    <Loading text="Carregando subáreas..." />
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {subareas.map((subarea) => (
+                        <Card
+                          key={subarea.name}
+                          hover
+                          clickable
+                          onClick={() => handleSwitchArea(subarea.name)}
+                        >
+                          <div className="p-4">
+                            <h4 className="font-medium mb-2">{subarea.name}</h4>
+                            <p className="text-sm text-gray-600">{subarea.description}</p>
+                            {selectedArea === user?.current_track && 
+                             subarea.name === user?.current_subarea && (
+                              <span className="inline-block mt-2 text-xs bg-primary-100 text-primary-700 px-2 py-1 rounded">
+                                Subárea Atual
+                              </span>
+                            )}
+                          </div>
+                        </Card>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+              
+              <div className="mt-6 flex justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowAreaModal(false)}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 

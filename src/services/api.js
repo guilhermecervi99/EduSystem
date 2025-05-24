@@ -561,5 +561,258 @@ setInterval(() => {
 
 console.log('✅ API module loaded successfully');
 
+// Adicionar estas funções ao final do api.js
+
+// ✅ CORREÇÃO CRÍTICA: Throttling para getCurrentContent
+const throttledRequests = new Map();
+
+const throttle = (fn, delay = 1000) => {
+  return async (...args) => {
+    const key = fn.name + JSON.stringify(args);
+    
+    if (throttledRequests.has(key)) {
+      const lastCall = throttledRequests.get(key);
+      const timeSinceLastCall = Date.now() - lastCall.timestamp;
+      
+      if (timeSinceLastCall < delay) {
+        console.log(`🚫 Throttled ${fn.name} - muito cedo (${timeSinceLastCall}ms < ${delay}ms)`);
+        return lastCall.promise;
+      }
+    }
+    
+    const promise = fn.apply(this, args);
+    throttledRequests.set(key, {
+      timestamp: Date.now(),
+      promise
+    });
+    
+    // Limpar cache após delay
+    setTimeout(() => {
+      throttledRequests.delete(key);
+    }, delay);
+    
+    return promise;
+  };
+};
+
+// Adicionar em src/services/api.js
+
+export const contentAPI = {
+  async browseAreas(includeMetadata = true) {
+    const response = await api.get('/content/areas', {
+      params: { include_metadata: includeMetadata }
+    });
+    return response.data;
+  },
+
+  async getAreaDetails(areaName) {
+    const response = await api.get(`/content/areas/${areaName}`);
+    return response.data;
+  },
+
+  async getSubareaDetails(areaName, subareaName) {
+    const response = await api.get(`/content/areas/${areaName}/subareas/${subareaName}`);
+    return response.data;
+  },
+
+  async setCurrentArea(areaName, subareaName = null) {
+    const params = subareaName ? { subarea_name: subareaName } : {};
+    const response = await api.post(`/content/areas/${areaName}/set-current`, null, { params });
+    return response.data;
+  },
+
+  async getLevelDetails(areaName, subareaName, levelName) {
+    const response = await api.get(
+      `/content/areas/${areaName}/subareas/${subareaName}/levels/${levelName}`
+    );
+    return response.data;
+  },
+
+  async getModuleDetails(areaName, subareaName, levelName, moduleIndex) {
+    const response = await api.get(
+      `/content/areas/${areaName}/subareas/${subareaName}/levels/${levelName}/modules/${moduleIndex}`
+    );
+    return response.data;
+  },
+
+  async searchContent(query, contentTypes = ['all'], limit = 20) {
+    const response = await api.get('/content/search/content', {
+      params: {
+        q: query,
+        content_types: contentTypes,
+        limit
+      }
+    });
+    return response.data;
+  }
+};
+
+// Adicionar em api.js
+export const feedbackAPI = {
+  async collectFeedback(feedbackData) {
+    const response = await api.post('/feedback/collect', feedbackData);
+    return response.data;
+  },
+
+  async getFeedbackAnalysis(days = 30) {
+    const response = await api.get('/feedback/analysis', { params: { days } });
+    return response.data;
+  },
+
+  async adaptRecommendations(force = false) {
+    const response = await api.post('/feedback/adapt', null, { params: { force } });
+    return response.data;
+  },
+
+  async getImprovementSuggestions() {
+    const response = await api.get('/feedback/suggestions');
+    return response.data;
+  },
+
+  async getFeedbackHistory(limit = 20, offset = 0, sessionType = null) {
+    const params = { limit, offset };
+    if (sessionType) params.session_type = sessionType;
+    const response = await api.get('/feedback/history', { params });
+    return response.data;
+  }
+};
+
+// ✅ WRAPPER THROTTLED para getCurrentContent
+const originalGetCurrentContent = progressAPI.getCurrentContent;
+progressAPI.getCurrentContent = throttle(async () => {
+  console.log('📚 Executando getCurrentContent...');
+  const response = await api.get('/progress/current-content');
+  return response.data;
+}, 2000); // Mínimo 2 segundos entre chamadas
+
+// ✅ WRAPPER THROTTLED para getCurrentProgress  
+const originalGetCurrentProgress = progressAPI.getCurrentProgress;
+progressAPI.getCurrentProgress = throttle(async () => {
+  console.log('📊 Executando getCurrentProgress...');
+  const response = await api.get('/progress/current');
+  return response.data;
+}, 3000); // Mínimo 3 segundos entre chamadas
+
+console.log('⚡ Throttling aplicado às APIs críticas');
+
+// 1. Gerar Avaliação (já existe API, falta usar)
+const handleGenerateAssessment = async () => {
+  try {
+    const assessmentData = {
+      topic: currentContent?.title || 'Conceitos gerais',
+      difficulty: currentProgress?.level || 'iniciante',
+      num_questions: 10,
+      question_types: ['múltipla escolha', 'verdadeiro/falso', 'dissertativa']
+    };
+    
+    const response = await llmAPI.generateAssessment(assessmentData);
+    // Mostrar avaliação para o usuário responder
+    setCurrentAssessment(response.assessment);
+    setShowAssessmentModal(true);
+  } catch (error) {
+    showError('Erro ao gerar avaliação');
+  }
+};
+
+// 2. Gerar Trilha de Aprendizado Personalizada
+const handleGenerateLearningPath = async () => {
+  try {
+    const pathData = {
+      topic: `${currentProgress?.area} - ${currentProgress?.subarea}`,
+      duration_weeks: 4,
+      hours_per_week: 5,
+      initial_level: currentProgress?.level || 'iniciante',
+      target_level: 'avançado'
+    };
+    
+    const response = await llmAPI.generateLearningPath(pathData);
+    // Mostrar plano gerado
+    setLearningPath(response.pathway);
+    setShowPathModal(true);
+  } catch (error) {
+    showError('Erro ao gerar trilha');
+  }
+};
+
+// 3. Aplicar Avaliação e Obter Resultado
+const handleSubmitAssessment = async (answers) => {
+  try {
+    const assessmentData = {
+      questions: currentAssessment.questions,
+      answers: answers
+    };
+    
+    const result = await llmAPI.applyAssessment(assessmentData);
+    
+    // Mostrar resultado
+    setAssessmentResult(result);
+    
+    // Se passou, registrar conclusão
+    if (result.passed) {
+      await progressAPI.completeAssessment({
+        module_title: currentContent?.context?.module,
+        level_name: currentProgress?.level,
+        score: result.score,
+        assessment_type: 'module'
+      });
+    }
+  } catch (error) {
+    showError('Erro ao processar avaliação');
+  }
+};
+
+// 4. Analisar e Simplificar Conteúdo
+const handleContentAnalysis = async () => {
+  try {
+    const analysis = await llmAPI.analyzeContent(currentContent.content);
+    
+    if (analysis.recommendations.includes('simplificar')) {
+      const simplified = await llmAPI.simplifyContent(
+        currentContent.content,
+        user.age
+      );
+      
+      // Opção para usar conteúdo simplificado
+      setAlternativeContent(simplified.simplified_content);
+      setShowContentOptions(true);
+    }
+  } catch (error) {
+    console.error('Erro na análise:', error);
+  }
+};
+
+// 5. Sistema de Especialização
+const handleStartSpecialization = async (specialization) => {
+  try {
+    // Registrar início da especialização
+    await progressAPI.startSpecialization({
+      spec_name: specialization.name,
+      area: currentProgress.area,
+      subarea: currentProgress.subarea
+    });
+    
+    // Navegar para primeiro módulo da especialização
+    navigateToSpecializationContent(specialization.modules[0]);
+  } catch (error) {
+    showError('Erro ao iniciar especialização');
+  }
+};
+
+// 6. Completar Especialização
+const handleCompleteSpecialization = async (specName) => {
+  try {
+    await progressAPI.registerSpecializationCompletion(
+      specName,
+      currentProgress.area,
+      currentProgress.subarea
+    );
+    
+    showSuccess('Especialização concluída! 🎉');
+    // Atualizar badges e certificados
+  } catch (error) {
+    showError('Erro ao completar especialização');
+  }
+};
+
 // Exportação da instância do axios para casos especiais
 export default api;

@@ -1,3 +1,4 @@
+// AppContext.jsx - VERSÃO CORRIGIDA PARA EVITAR LOOPS
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import { progressAPI, achievementsAPI } from '../services/api';
@@ -168,12 +169,12 @@ export function AppProvider({ children }) {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const { isAuthenticated, user, updateUser } = useAuth();
   
-  // ✅ CORREÇÃO: useRef para evitar múltiplas chamadas
+  // ✅ CORREÇÃO CRÍTICA: useRef para controlar operações únicas
   const initializationRef = useRef(false);
-  const loadingOperationsRef = useRef(new Set());
+  const activeOperationsRef = useRef(new Set());
 
-  // Cache TTL (5 minutos)
-  const CACHE_TTL = 5 * 60 * 1000;
+  // Cache TTL (10 minutos em vez de 5)
+  const CACHE_TTL = 10 * 60 * 1000;
 
   // Função para verificar se o cache é válido
   const isCacheValid = useCallback((timestamp) => {
@@ -181,124 +182,155 @@ export function AppProvider({ children }) {
     return Date.now() - timestamp < CACHE_TTL;
   }, []);
 
-  // ✅ CORREÇÃO: useCallback com controle de loading para evitar chamadas simultâneas
+  // ✅ CORREÇÃO: useCallback com controle rigoroso de operações simultâneas
   const loadProgress = useCallback(async (forceRefresh = false) => {
     if (!isAuthenticated || !user) return null;
 
     const operationKey = 'loadProgress';
     
     // Evitar múltiplas chamadas simultâneas
-    if (loadingOperationsRef.current.has(operationKey)) {
+    if (activeOperationsRef.current.has(operationKey)) {
+      console.log('⏭️ loadProgress já está em execução, pulando...');
       return state.currentProgress;
     }
 
-    if (!forceRefresh && isCacheValid(state.lastProgressUpdate)) {
+    // Verificar cache válido
+    if (!forceRefresh && isCacheValid(state.lastProgressUpdate) && state.currentProgress) {
+      console.log('📋 Cache de progresso ainda válido');
       return state.currentProgress;
     }
 
-    loadingOperationsRef.current.add(operationKey);
+    activeOperationsRef.current.add(operationKey);
     dispatch({ type: APP_ACTIONS.SET_PROGRESS_LOADING, payload: true });
 
     try {
+      console.log('📊 Carregando progresso...');
       const progress = await progressAPI.getCurrentProgress();
       dispatch({ type: APP_ACTIONS.SET_PROGRESS, payload: progress });
+      console.log('✅ Progresso carregado:', progress);
       return progress;
     } catch (error) {
-      console.error('Erro ao carregar progresso:', error);
+      console.error('❌ Erro ao carregar progresso:', error);
       dispatch({ type: APP_ACTIONS.SET_PROGRESS_LOADING, payload: false });
       return null;
     } finally {
-      loadingOperationsRef.current.delete(operationKey);
+      activeOperationsRef.current.delete(operationKey);
     }
-  }, [isAuthenticated, user, state.lastProgressUpdate, isCacheValid]);
+  }, [isAuthenticated, user, state.lastProgressUpdate, state.currentProgress, isCacheValid]);
 
-  // ✅ CORREÇÃO: useCallback com controle de loading
+  // ✅ CORREÇÃO: useCallback com controle de operações simultâneas
   const loadAchievements = useCallback(async (forceRefresh = false) => {
     if (!isAuthenticated || !user) return null;
 
     const operationKey = 'loadAchievements';
     
-    if (loadingOperationsRef.current.has(operationKey)) {
+    if (activeOperationsRef.current.has(operationKey)) {
+      console.log('⏭️ loadAchievements já está em execução, pulando...');
       return state.achievements;
     }
 
-    if (!forceRefresh && isCacheValid(state.lastAchievementsUpdate)) {
+    if (!forceRefresh && isCacheValid(state.lastAchievementsUpdate) && state.achievements) {
+      console.log('🏆 Cache de conquistas ainda válido');
       return state.achievements;
     }
 
-    loadingOperationsRef.current.add(operationKey);
+    activeOperationsRef.current.add(operationKey);
     dispatch({ type: APP_ACTIONS.SET_ACHIEVEMENTS_LOADING, payload: true });
 
     try {
+      console.log('🏆 Carregando conquistas...');
       const achievements = await achievementsAPI.getUserAchievements();
       dispatch({ type: APP_ACTIONS.SET_ACHIEVEMENTS, payload: achievements });
+      console.log('✅ Conquistas carregadas:', achievements);
       return achievements;
     } catch (error) {
-      console.error('Erro ao carregar conquistas:', error);
+      console.error('❌ Erro ao carregar conquistas:', error);
       dispatch({ type: APP_ACTIONS.SET_ACHIEVEMENTS_LOADING, payload: false });
       return null;
     } finally {
-      loadingOperationsRef.current.delete(operationKey);
+      activeOperationsRef.current.delete(operationKey);
     }
-  }, [isAuthenticated, user, state.lastAchievementsUpdate, isCacheValid]);
+  }, [isAuthenticated, user, state.lastAchievementsUpdate, state.achievements, isCacheValid]);
 
-  // ✅ CORREÇÃO: useCallback com controle de loading
+  // ✅ CORREÇÃO: useCallback com controle de operações simultâneas
   const loadStatistics = useCallback(async (forceRefresh = false) => {
     if (!isAuthenticated || !user) return null;
 
     const operationKey = 'loadStatistics';
     
-    if (loadingOperationsRef.current.has(operationKey)) {
+    if (activeOperationsRef.current.has(operationKey)) {
+      console.log('⏭️ loadStatistics já está em execução, pulando...');
       return state.statistics;
     }
 
-    if (!forceRefresh && isCacheValid(state.lastStatisticsUpdate)) {
+    if (!forceRefresh && isCacheValid(state.lastStatisticsUpdate) && state.statistics) {
+      console.log('📈 Cache de estatísticas ainda válido');
       return state.statistics;
     }
 
-    loadingOperationsRef.current.add(operationKey);
+    activeOperationsRef.current.add(operationKey);
     dispatch({ type: APP_ACTIONS.SET_STATISTICS_LOADING, payload: true });
 
     try {
+      console.log('📈 Carregando estatísticas...');
       const statistics = await progressAPI.getStatistics();
       dispatch({ type: APP_ACTIONS.SET_STATISTICS, payload: statistics });
+      console.log('✅ Estatísticas carregadas:', statistics);
       return statistics;
     } catch (error) {
-      console.error('Erro ao carregar estatísticas:', error);
+      console.error('❌ Erro ao carregar estatísticas:', error);
       dispatch({ type: APP_ACTIONS.SET_STATISTICS_LOADING, payload: false });
       return null;
     } finally {
-      loadingOperationsRef.current.delete(operationKey);
+      activeOperationsRef.current.delete(operationKey);
     }
-  }, [isAuthenticated, user, state.lastStatisticsUpdate, isCacheValid]);
+  }, [isAuthenticated, user, state.lastStatisticsUpdate, state.statistics, isCacheValid]);
 
-  // ✅ CORREÇÃO: useCallback com controle de loading
+  // ✅ CORREÇÃO: useCallback com controle de operações simultâneas
   const loadNextSteps = useCallback(async () => {
     if (!isAuthenticated || !user) return [];
 
     const operationKey = 'loadNextSteps';
     
-    if (loadingOperationsRef.current.has(operationKey)) {
+    if (activeOperationsRef.current.has(operationKey)) {
+      console.log('⏭️ loadNextSteps já está em execução, pulando...');
       return state.nextSteps;
     }
 
-    loadingOperationsRef.current.add(operationKey);
+    activeOperationsRef.current.add(operationKey);
 
     try {
+      console.log('📋 Carregando próximos passos...');
       const nextSteps = await progressAPI.getNextSteps();
-      dispatch({ type: APP_ACTIONS.SET_NEXT_STEPS, payload: nextSteps.recommendations || [] });
-      return nextSteps.recommendations || [];
+      const steps = nextSteps.recommendations || [];
+      dispatch({ type: APP_ACTIONS.SET_NEXT_STEPS, payload: steps });
+      console.log('✅ Próximos passos carregados:', steps);
+      return steps;
     } catch (error) {
-      console.error('Erro ao carregar próximos passos:', error);
+      console.error('❌ Erro ao carregar próximos passos:', error);
       return [];
     } finally {
-      loadingOperationsRef.current.delete(operationKey);
+      activeOperationsRef.current.delete(operationKey);
     }
-  }, [isAuthenticated, user]);
+  }, [isAuthenticated, user, state.nextSteps]);
 
-  // ✅ CORREÇÃO: Função para carregar dados iniciais apenas uma vez
+  // ✅ CORREÇÃO: Função para carregar dados iniciais COM controle rigoroso
   const initializeAppData = useCallback(async () => {
+    // Múltiplas verificações para evitar execução duplicada
     if (!isAuthenticated || !user || initializationRef.current || state.isInitialized) {
+      return;
+    }
+
+    // Verificar se já temos dados válidos em cache
+    const hasValidCache = (
+      isCacheValid(state.lastProgressUpdate) && state.currentProgress &&
+      isCacheValid(state.lastAchievementsUpdate) && state.achievements &&
+      isCacheValid(state.lastStatisticsUpdate) && state.statistics
+    );
+
+    if (hasValidCache) {
+      console.log('📋 Todos os dados já estão em cache válido');
+      dispatch({ type: APP_ACTIONS.SET_INITIALIZED, payload: true });
       return;
     }
 
@@ -307,34 +339,56 @@ export function AppProvider({ children }) {
     try {
       console.log('🚀 Inicializando dados do app...');
       
-      // Carregar dados em paralelo apenas se não existirem no cache
+      // Carregar dados em paralelo COM Promise.allSettled para não falhar tudo se um falhar
       const promises = [];
       
-      if (!isCacheValid(state.lastProgressUpdate)) {
-        promises.push(loadProgress());
+      if (!isCacheValid(state.lastProgressUpdate) || !state.currentProgress) {
+        promises.push(loadProgress(false));
       }
       
-      if (!isCacheValid(state.lastAchievementsUpdate)) {
-        promises.push(loadAchievements());
+      if (!isCacheValid(state.lastAchievementsUpdate) || !state.achievements) {
+        promises.push(loadAchievements(false));
       }
       
-      if (!isCacheValid(state.lastStatisticsUpdate)) {
-        promises.push(loadStatistics());
+      if (!isCacheValid(state.lastStatisticsUpdate) || !state.statistics) {
+        promises.push(loadStatistics(false));
       }
       
       promises.push(loadNextSteps());
 
-      await Promise.allSettled(promises);
+      const results = await Promise.allSettled(promises);
+      
+      // Log dos resultados
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          console.error(`❌ Promise ${index} rejeitada:`, result.reason);
+        }
+      });
       
       dispatch({ type: APP_ACTIONS.SET_INITIALIZED, payload: true });
-      console.log('✅ Dados do app inicializados');
+      console.log('✅ Dados do app inicializados com sucesso');
       
     } catch (error) {
-      console.error('❌ Erro ao inicializar dados do app:', error);
+      console.error('❌ Erro crítico ao inicializar dados do app:', error);
     } finally {
       initializationRef.current = false;
     }
-  }, [isAuthenticated, user, state.isInitialized, state.lastProgressUpdate, state.lastAchievementsUpdate, state.lastStatisticsUpdate, isCacheValid, loadProgress, loadAchievements, loadStatistics, loadNextSteps]);
+  }, [
+    isAuthenticated, 
+    user, 
+    state.isInitialized, 
+    state.lastProgressUpdate, 
+    state.currentProgress,
+    state.lastAchievementsUpdate, 
+    state.achievements,
+    state.lastStatisticsUpdate, 
+    state.statistics,
+    isCacheValid, 
+    loadProgress, 
+    loadAchievements, 
+    loadStatistics, 
+    loadNextSteps
+  ]);
 
   // Verificar novas conquistas
   const checkNewAchievements = useCallback(async () => {
@@ -419,13 +473,14 @@ export function AppProvider({ children }) {
     if (!isAuthenticated) {
       dispatch({ type: APP_ACTIONS.CLEAR_CACHE });
       initializationRef.current = false;
-      loadingOperationsRef.current.clear();
+      activeOperationsRef.current.clear();
     }
   }, [isAuthenticated]);
 
-  // ✅ CORREÇÃO: Inicializar dados apenas quando necessário
+  // ✅ CORREÇÃO: Inicializar dados APENAS uma vez quando autenticado
   useEffect(() => {
-    if (isAuthenticated && user && !state.isInitialized) {
+    if (isAuthenticated && user && !state.isInitialized && !initializationRef.current) {
+      console.log('🎯 Condições atendidas para inicialização');
       initializeAppData();
     }
   }, [isAuthenticated, user, state.isInitialized, initializeAppData]);
@@ -433,7 +488,20 @@ export function AppProvider({ children }) {
   // ✅ CORREÇÃO: Carregar tema salvo apenas uma vez
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme') || 'light';
-    dispatch({ type: APP_ACTIONS.SET_THEME, payload: savedTheme });
+    if (state.theme !== savedTheme) {
+      dispatch({ type: APP_ACTIONS.SET_THEME, payload: savedTheme });
+    }
+  }, []); // Array vazio - executa apenas uma vez
+
+  // ✅ DEBUG: Monitorar operações ativas
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (activeOperationsRef.current.size > 0) {
+        console.log('🔄 Operações ativas:', Array.from(activeOperationsRef.current));
+      }
+    }, 10000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   // Valor do contexto
