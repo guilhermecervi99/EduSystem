@@ -206,9 +206,13 @@ export const progressAPI = {
   },
 
   async completeLesson(lessonData) {
+    // Log para debug
+    console.log('📤 Enviando para API:', lessonData);
+    
     const response = await api.post('/progress/lesson/complete', lessonData);
     return response.data;
   },
+
 
   async completeModule(moduleData) {
     const response = await api.post('/progress/module/complete', moduleData);
@@ -242,6 +246,109 @@ export const progressAPI = {
 
   async switchTrack(newTrack) {
     const response = await api.post('/progress/switch-track', { new_track: newTrack });
+    return response.data;
+  },
+
+  async navigateTo(navigationData) {
+    try {
+      // ✅ Validar dados obrigatórios ANTES de enviar
+      const requiredFields = ['area', 'subarea', 'level', 'module_index'];
+      const missingFields = requiredFields.filter(field => !navigationData[field] && navigationData[field] !== 0);
+      
+      if (missingFields.length > 0) {
+        throw new Error(`Campos obrigatórios faltando: ${missingFields.join(', ')}`);
+      }
+      
+      // Garantir que todos os campos têm valores válidos
+      const validatedData = {
+        area: navigationData.area,
+        subarea: navigationData.subarea,
+        level: navigationData.level,
+        module_index: parseInt(navigationData.module_index) || 0,
+        lesson_index: parseInt(navigationData.lesson_index) || 0,
+        step_index: parseInt(navigationData.step_index) || 0
+      };
+      
+      console.log('📤 Enviando navegação:', validatedData);
+      
+      // Enviar como query parameters (como o backend espera)
+      const response = await api.post('/progress/navigate-to', null, {
+        params: validatedData
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('❌ Navigation error:', error);
+      throw error;
+    }
+  },
+
+  
+  async completeAndAdvance(lessonData) {
+    try {
+      // Garantir que lesson_title existe
+      if (!lessonData.lesson_title) {
+        throw new Error('lesson_title é obrigatório');
+      }
+
+      // Primeiro completa a lição
+      const completeResponse = await api.post('/progress/lesson/complete', lessonData);
+
+      // Como advance_progress já é true, o backend já avançou
+      // Não precisa chamar /progress/advance novamente
+      
+      return completeResponse.data;
+    } catch (error) {
+      console.error('Complete and advance error:', error);
+      throw error;
+    }
+  },
+
+  async getTodayProgress() {
+    try {
+      const response = await api.get('/progress/today');
+      return response.data;
+    } catch (error) {
+      // Se não existir endpoint, retornar dados padrão
+      return {
+        lessons_completed: 0,
+        modules_completed: 0,
+        study_time_minutes: 0
+      };
+    }
+  },
+
+  async getWeeklyProgress() {
+    try {
+      const response = await api.get('/progress/weekly');
+      return response.data;
+    } catch (error) {
+      // Se não existir endpoint, retornar dados padrão
+      return {
+        target: 5,
+        completed: 0
+      };
+    }
+  },
+
+  async completeAssessment(assessmentData) {
+    const response = await api.post('/progress/assessment/complete', assessmentData);
+    return response.data;
+  },
+
+  async startSpecialization(specData) {
+    const response = await api.post('/progress/specialization/start', specData);
+    return response.data;
+  },
+
+  async registerSpecializationCompletion(specName, area, subarea) {
+    const response = await api.post('/progress/register-specialization-completion', null, {
+      params: {
+        spec_name: specName,
+        area_name: area,
+        subarea_name: subarea
+      }
+    });
     return response.data;
   },
 };
@@ -517,86 +624,7 @@ export const usersAPI = {
   },
 };
 
-// ===== DEBUG FUNCTIONS ADICIONADAS =====
-export const debugAPI = {
-  getActiveRequests: () => Array.from(activeRequests.entries()),
-  getRequestCount: () => requestCount,
-  clearStats: () => {
-    requestCount = 0;
-    activeRequests.clear();
-  },
-  testAuthAPI: () => {
-    console.log('🔍 AuthAPI methods:', Object.keys(authAPI));
-    console.log('🔍 getCurrentUser exists:', typeof authAPI.getCurrentUser);
-    
-    if (typeof authAPI.getCurrentUser === 'function') {
-      console.log('✅ getCurrentUser is a function');
-    } else {
-      console.error('❌ getCurrentUser is not a function!');
-    }
-  },
-  async testConnection() {
-    console.log('🧪 Testing API connection...');
-    try {
-      const response = await fetch(`${API_BASE_URL}/health`, { method: 'GET' });
-      console.log('🏥 Health check response:', response.status);
-      return response.ok;
-    } catch (error) {
-      console.error('💥 API connection test failed:', error);
-      return false;
-    }
-  }
-};
-
-// Adicionar ao window para debug no console
-window.debugAPI = debugAPI;
-
-// Detectar possíveis loops infinitos
-setInterval(() => {
-  if (activeRequests.size > 10) {
-    console.error('🚨 POSSÍVEL LOOP INFINITO DE API CALLS!');
-    console.log('Requests ativas:', Array.from(activeRequests.values()));
-  }
-}, 5000);
-
-console.log('✅ API module loaded successfully');
-
-// Adicionar estas funções ao final do api.js
-
-// ✅ CORREÇÃO CRÍTICA: Throttling para getCurrentContent
-const throttledRequests = new Map();
-
-const throttle = (fn, delay = 1000) => {
-  return async (...args) => {
-    const key = fn.name + JSON.stringify(args);
-    
-    if (throttledRequests.has(key)) {
-      const lastCall = throttledRequests.get(key);
-      const timeSinceLastCall = Date.now() - lastCall.timestamp;
-      
-      if (timeSinceLastCall < delay) {
-        console.log(`🚫 Throttled ${fn.name} - muito cedo (${timeSinceLastCall}ms < ${delay}ms)`);
-        return lastCall.promise;
-      }
-    }
-    
-    const promise = fn.apply(this, args);
-    throttledRequests.set(key, {
-      timestamp: Date.now(),
-      promise
-    });
-    
-    // Limpar cache após delay
-    setTimeout(() => {
-      throttledRequests.delete(key);
-    }, delay);
-    
-    return promise;
-  };
-};
-
-// Adicionar em src/services/api.js
-
+// Content API
 export const contentAPI = {
   async browseAreas(includeMetadata = true) {
     const response = await api.get('/content/areas', {
@@ -647,7 +675,7 @@ export const contentAPI = {
   }
 };
 
-// Adicionar em api.js
+// Feedback API
 export const feedbackAPI = {
   async collectFeedback(feedbackData) {
     const response = await api.post('/feedback/collect', feedbackData);
@@ -677,6 +705,82 @@ export const feedbackAPI = {
   }
 };
 
+// ===== DEBUG FUNCTIONS ADICIONADAS =====
+export const debugAPI = {
+  getActiveRequests: () => Array.from(activeRequests.entries()),
+  getRequestCount: () => requestCount,
+  clearStats: () => {
+    requestCount = 0;
+    activeRequests.clear();
+  },
+  testAuthAPI: () => {
+    console.log('🔍 AuthAPI methods:', Object.keys(authAPI));
+    console.log('🔍 getCurrentUser exists:', typeof authAPI.getCurrentUser);
+    
+    if (typeof authAPI.getCurrentUser === 'function') {
+      console.log('✅ getCurrentUser is a function');
+    } else {
+      console.error('❌ getCurrentUser is not a function!');
+    }
+  },
+  async testConnection() {
+    console.log('🧪 Testing API connection...');
+    try {
+      const response = await fetch(`${API_BASE_URL}/health`, { method: 'GET' });
+      console.log('🏥 Health check response:', response.status);
+      return response.ok;
+    } catch (error) {
+      console.error('💥 API connection test failed:', error);
+      return false;
+    }
+  }
+};
+
+// Adicionar ao window para debug no console
+window.debugAPI = debugAPI;
+
+// Detectar possíveis loops infinitos
+setInterval(() => {
+  if (activeRequests.size > 10) {
+    console.error('🚨 POSSÍVEL LOOP INFINITO DE API CALLS!');
+    console.log('Requests ativas:', Array.from(activeRequests.values()));
+  }
+}, 5000);
+
+console.log('✅ API module loaded successfully');
+
+// ✅ CORREÇÃO CRÍTICA: Throttling para getCurrentContent
+const throttledRequests = new Map();
+
+const throttle = (fn, delay = 1000) => {
+  return async (...args) => {
+    const key = fn.name + JSON.stringify(args);
+    
+    if (throttledRequests.has(key)) {
+      const lastCall = throttledRequests.get(key);
+      const timeSinceLastCall = Date.now() - lastCall.timestamp;
+      
+      if (timeSinceLastCall < delay) {
+        console.log(`🚫 Throttled ${fn.name} - muito cedo (${timeSinceLastCall}ms < ${delay}ms)`);
+        return lastCall.promise;
+      }
+    }
+    
+    const promise = fn.apply(this, args);
+    throttledRequests.set(key, {
+      timestamp: Date.now(),
+      promise
+    });
+    
+    // Limpar cache após delay
+    setTimeout(() => {
+      throttledRequests.delete(key);
+    }, delay);
+    
+    return promise;
+  };
+};
+
 // ✅ WRAPPER THROTTLED para getCurrentContent
 const originalGetCurrentContent = progressAPI.getCurrentContent;
 progressAPI.getCurrentContent = throttle(async () => {
@@ -694,125 +798,6 @@ progressAPI.getCurrentProgress = throttle(async () => {
 }, 3000); // Mínimo 3 segundos entre chamadas
 
 console.log('⚡ Throttling aplicado às APIs críticas');
-
-// 1. Gerar Avaliação (já existe API, falta usar)
-const handleGenerateAssessment = async () => {
-  try {
-    const assessmentData = {
-      topic: currentContent?.title || 'Conceitos gerais',
-      difficulty: currentProgress?.level || 'iniciante',
-      num_questions: 10,
-      question_types: ['múltipla escolha', 'verdadeiro/falso', 'dissertativa']
-    };
-    
-    const response = await llmAPI.generateAssessment(assessmentData);
-    // Mostrar avaliação para o usuário responder
-    setCurrentAssessment(response.assessment);
-    setShowAssessmentModal(true);
-  } catch (error) {
-    showError('Erro ao gerar avaliação');
-  }
-};
-
-// 2. Gerar Trilha de Aprendizado Personalizada
-const handleGenerateLearningPath = async () => {
-  try {
-    const pathData = {
-      topic: `${currentProgress?.area} - ${currentProgress?.subarea}`,
-      duration_weeks: 4,
-      hours_per_week: 5,
-      initial_level: currentProgress?.level || 'iniciante',
-      target_level: 'avançado'
-    };
-    
-    const response = await llmAPI.generateLearningPath(pathData);
-    // Mostrar plano gerado
-    setLearningPath(response.pathway);
-    setShowPathModal(true);
-  } catch (error) {
-    showError('Erro ao gerar trilha');
-  }
-};
-
-// 3. Aplicar Avaliação e Obter Resultado
-const handleSubmitAssessment = async (answers) => {
-  try {
-    const assessmentData = {
-      questions: currentAssessment.questions,
-      answers: answers
-    };
-    
-    const result = await llmAPI.applyAssessment(assessmentData);
-    
-    // Mostrar resultado
-    setAssessmentResult(result);
-    
-    // Se passou, registrar conclusão
-    if (result.passed) {
-      await progressAPI.completeAssessment({
-        module_title: currentContent?.context?.module,
-        level_name: currentProgress?.level,
-        score: result.score,
-        assessment_type: 'module'
-      });
-    }
-  } catch (error) {
-    showError('Erro ao processar avaliação');
-  }
-};
-
-// 4. Analisar e Simplificar Conteúdo
-const handleContentAnalysis = async () => {
-  try {
-    const analysis = await llmAPI.analyzeContent(currentContent.content);
-    
-    if (analysis.recommendations.includes('simplificar')) {
-      const simplified = await llmAPI.simplifyContent(
-        currentContent.content,
-        user.age
-      );
-      
-      // Opção para usar conteúdo simplificado
-      setAlternativeContent(simplified.simplified_content);
-      setShowContentOptions(true);
-    }
-  } catch (error) {
-    console.error('Erro na análise:', error);
-  }
-};
-
-// 5. Sistema de Especialização
-const handleStartSpecialization = async (specialization) => {
-  try {
-    // Registrar início da especialização
-    await progressAPI.startSpecialization({
-      spec_name: specialization.name,
-      area: currentProgress.area,
-      subarea: currentProgress.subarea
-    });
-    
-    // Navegar para primeiro módulo da especialização
-    navigateToSpecializationContent(specialization.modules[0]);
-  } catch (error) {
-    showError('Erro ao iniciar especialização');
-  }
-};
-
-// 6. Completar Especialização
-const handleCompleteSpecialization = async (specName) => {
-  try {
-    await progressAPI.registerSpecializationCompletion(
-      specName,
-      currentProgress.area,
-      currentProgress.subarea
-    );
-    
-    showSuccess('Especialização concluída! 🎉');
-    // Atualizar badges e certificados
-  } catch (error) {
-    showError('Erro ao completar especialização');
-  }
-};
 
 // Exportação da instância do axios para casos especiais
 export default api;

@@ -1,6 +1,5 @@
-
-// App.jsx - VERSÃO ATUALIZADA
-import React from 'react';
+// App.jsx - VERSÃO ATUALIZADA COM CORREÇÃO
+import React, { useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppProvider } from './context/AppContext';
 import { NotificationProvider } from './context/NotificationContext';
@@ -27,6 +26,7 @@ import { useNavigation } from './hooks/useNavigation';
 // Main App Router Component
 function AppRouter() {
   const { isAuthenticated, isLoading, hasCompletedMapping, user } = useAuth();
+  const [forceMapping, setForceMapping] = React.useState(false);
 
   // ✅ DEBUG MELHORADO
   console.log('🔍 AppRouter Debug:', { 
@@ -35,8 +35,25 @@ function AppRouter() {
     hasCompletedMapping: hasCompletedMapping(),
     userEmail: user?.email,
     currentTrack: user?.current_track,
+    forceMapping,
     timestamp: new Date().toISOString()
   });
+
+  // ✅ CORREÇÃO: UseEffect para detectar quando precisa ir pro mapeamento
+  useEffect(() => {
+    if (isAuthenticated && !isLoading && user) {
+      console.log('🔍 Verificando necessidade de mapeamento...');
+      console.log('User current_track:', user.current_track);
+      
+      // Se não tem current_track, forçar mapeamento
+      if (!user.current_track) {
+        console.log('🗺️ Usuário sem current_track, forçando mapeamento');
+        setForceMapping(true);
+      } else {
+        setForceMapping(false);
+      }
+    }
+  }, [isAuthenticated, isLoading, user]);
 
   // Show loading screen while checking authentication
   if (isLoading) {
@@ -59,12 +76,12 @@ function AppRouter() {
 
   console.log('✅ User is authenticated, checking mapping...');
 
-  // ✅ CORREÇÃO: Verificar se completou mapeamento antes de mostrar app principal
-  if (!hasCompletedMapping()) {
-    console.log('🗺️ No mapping completed, showing mapping page');
+  // ✅ CORREÇÃO: Verificar se completou mapeamento OU se forceMapping está ativo
+  if (!hasCompletedMapping() || forceMapping) {
+    console.log('🗺️ Showing mapping page - hasCompletedMapping:', hasCompletedMapping(), 'forceMapping:', forceMapping);
     return (
       <Layout>
-        <MappingPage />
+        <MappingPage onComplete={() => setForceMapping(false)} />
       </Layout>
     );
   }
@@ -87,9 +104,9 @@ function AppRoutes() {
         return <DashboardPage onNavigate={navigate} />;
       case 'learning':
         return <LearningPage onNavigate={navigate} />;
-      case 'areas':  // Nova página
+      case 'areas':
         return <AreaSelectionPage onNavigate={navigate} />;
-      case 'feedback':  // Nova página
+      case 'feedback':
         return <FeedbackPage onNavigate={navigate} />;
       case 'achievements':
         return <AchievementsPage onNavigate={navigate} />;
@@ -173,7 +190,7 @@ function App() {
     console.log(`🎨 App render #${renderCount.current}`);
     
     // Detectar renders excessivos
-    if (renderCount.current > 5) {
+    if (renderCount.current > 10) {
       console.warn('⚠️ App está re-renderizando muito! Possível loop infinito.');
     }
   });

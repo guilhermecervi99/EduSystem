@@ -2,7 +2,6 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import { progressAPI, achievementsAPI } from '../services/api';
-
 // Estado inicial
 const initialState = {
   // UI State

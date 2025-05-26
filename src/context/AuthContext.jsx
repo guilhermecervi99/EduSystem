@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
-import { authAPI } from '../services/api';
+import api, { authAPI } from '../services/api';
 import { STORAGE_KEYS } from '../utils/constants';
 
 // Estado inicial
@@ -248,50 +248,82 @@ export function AuthProvider({ children }) {
     }
   }, [saveToStorage]);
 
-  // Função de registro - CORRIGIDA para usar API correta
-  const register = useCallback(async (userData) => {
-    console.log('📝 Register attempt:', userData.email);
-    dispatch({ type: AUTH_ACTIONS.AUTH_START });
+// Correção completa da função register no AuthContext.jsx
+// Substitua toda a função register por esta:
 
-    try {
-      // ✅ CORREÇÃO: Ajustar dados para API do backend
-      const registerData = {
-        email: userData.email,
-        password: userData.password,
-        age: 14, // valor padrão
-        learning_style: 'didático' // valor padrão
-      };
+const register = useCallback(async (userData) => {
+  console.log('📝 Register attempt:', userData.email);
+  dispatch({ type: AUTH_ACTIONS.AUTH_START });
 
-      const registerResponse = await authAPI.register(registerData);
-      const { access_token, user_id } = registerResponse;
+  try {
+    // ✅ Usar os dados fornecidos pelo usuário
+    const registerData = {
+      email: userData.email,
+      password: userData.password,
+      age: userData.age,
+      learning_style: userData.learning_style
+    };
 
-      console.log('✅ Registration successful, fetching user data...');
+    console.log('📤 Enviando dados de registro:', registerData);
 
-      // Buscar dados completos do usuário
-      const userDetails = await authAPI.getCurrentUser();
+    const registerResponse = await authAPI.register(registerData);
+    const { access_token, user_id } = registerResponse;
 
-      saveToStorage(access_token, userDetails);
+    console.log('✅ Registration successful, token received');
 
-      dispatch({
-        type: AUTH_ACTIONS.AUTH_SUCCESS,
-        payload: {
-          token: access_token,
-          user: userDetails,
-        },
-      });
-
-      console.log('🎉 User registered successfully:', userDetails.email);
-      return { success: true, user: userDetails };
-    } catch (error) {
-      console.error('❌ Registration failed:', error.message);
-      dispatch({
-        type: AUTH_ACTIONS.AUTH_FAILURE,
-        payload: { error: error.message },
-      });
-
-      return { success: false, error: error.message };
+    // ✅ CORREÇÃO CRÍTICA: Salvar token ANTES de fazer qualquer outra chamada
+    if (access_token) {
+      localStorage.setItem(STORAGE_KEYS.TOKEN, access_token);
+      // IMPORTANTE: Também configurar o token no axios imediatamente
+      api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
+      console.log('✅ Token saved and configured in axios');
     }
-  }, [saveToStorage]);
+
+    // Pequeno delay para garantir que o token foi processado
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Agora sim buscar dados do usuário (com token configurado)
+    console.log('👤 Fetching user data with token...');
+    const userDetails = await authAPI.getCurrentUser();
+    console.log('✅ User data received:', userDetails.email);
+
+    // Salvar dados do usuário
+    saveToStorage(access_token, userDetails);
+
+    // Dispatch success
+    dispatch({
+      type: AUTH_ACTIONS.AUTH_SUCCESS,
+      payload: {
+        token: access_token,
+        user: userDetails,
+      },
+    });
+
+    console.log('🎉 User registered successfully:', userDetails.email);
+    
+    // ✅ IMPORTANTE: Retornar com flag indicando que precisa ir pro mapeamento
+    return { 
+      success: true, 
+      user: userDetails,
+      needsMapping: !userDetails.current_track // Se não tem trilha, precisa mapear
+    };
+    
+  } catch (error) {
+    console.error('❌ Registration failed:', error.message);
+    
+    // Limpar qualquer token inválido
+    localStorage.removeItem(STORAGE_KEYS.TOKEN);
+    delete api.defaults.headers.common['Authorization'];
+    
+    dispatch({
+      type: AUTH_ACTIONS.AUTH_FAILURE,
+      payload: { error: error.message },
+    });
+
+    return { success: false, error: error.message };
+  }
+}, [saveToStorage]);
+
 
   // Função de logout
   const logout = useCallback(async () => {

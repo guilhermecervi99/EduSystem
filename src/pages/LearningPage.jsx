@@ -22,9 +22,11 @@ import {
   CheckCircle2, 
   BookOpen as BookOpenIcon,
   X,
-  Target
+  Target,
+  Circle // Adicionado este import
 } from 'lucide-react';
 import api, { progressAPI, llmAPI, contentAPI, resourcesAPI } from '../services/api';
+import ReactMarkdown from 'react-markdown'; 
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
 import { useNotification } from '../context/NotificationContext';
@@ -36,7 +38,7 @@ const LearningPage = ({ onNavigate }) => {
   const { user, updateUser } = useAuth();
   const { completeLesson, currentProgress, loadProgress } = useApp();
   const { showSuccess, showError, showInfo } = useNotification();
-  
+  const [levelData, setLevelData] = useState(null);
   const [currentContent, setCurrentContent] = useState(null);
   const [loadingContent, setLoadingContent] = useState(true);
   const [showTeacherChat, setShowTeacherChat] = useState(false);
@@ -75,6 +77,12 @@ const LearningPage = ({ onNavigate }) => {
   const [suggestions, setSuggestions] = useState('');
   const [missingTopics, setMissingTopics] = useState('');
 
+  useEffect(() => {
+    if (currentProgress?.area && currentProgress?.subarea && currentProgress?.level) {
+      loadLevelData();
+    }
+  }, [currentProgress?.area, currentProgress?.subarea, currentProgress?.level]);
+  
   // Carregar conteúdo atual
   useEffect(() => {
     loadCurrentContent();
@@ -92,8 +100,53 @@ const LearningPage = ({ onNavigate }) => {
     setLoadingContent(true);
     try {
       const content = await progressAPI.getCurrentContent();
+      
+      // Enriquecer o conteúdo com dados faltantes
+      if (!content.title) {
+        // Tentar extrair título de várias fontes
+        if (content.context?.lesson) {
+          content.title = content.context.lesson;
+        } else if (content.content_type === 'step' && content.context) {
+          content.title = `${content.context.module} - ${content.context.lesson || 'Lição'}`;
+        } else {
+          // Título genérico baseado no tipo
+          content.title = content.content_type === 'step' ? 'Passo de Aprendizado' : 'Lição';
+        }
+      }
+      
+      // Garantir que context existe
+      if (!content.context) {
+        content.context = {
+          area: currentProgress?.area || user?.current_track || 'Geral',
+          subarea: currentProgress?.subarea || 'Geral',
+          level: currentProgress?.level || 'iniciante',
+          module: `Módulo ${(currentProgress?.module_index || 0) + 1}`,
+          lesson: content.title
+        };
+      }
+      
       setCurrentContent(content);
     } catch (error) {
+      console.error('Erro ao carregar conteúdo:', error);
+      
+      // Se falhar, criar conteúdo de fallback
+      const fallbackContent = {
+        title: 'Conteúdo de Estudo',
+        content: 'Erro ao carregar conteúdo. Por favor, tente novamente.',
+        content_type: 'error',
+        context: {
+          area: currentProgress?.area || user?.current_track || 'Geral',
+          subarea: currentProgress?.subarea || 'Geral',
+          level: currentProgress?.level || 'iniciante',
+          module: `Módulo ${(currentProgress?.module_index || 0) + 1}`
+        },
+        navigation: {
+          has_previous: (currentProgress?.module_index || 0) > 0,
+          has_next: true
+        }
+      };
+      
+      setCurrentContent(fallbackContent);
       showError('Erro ao carregar conteúdo: ' + error.message);
     } finally {
       setLoadingContent(false);
@@ -123,6 +176,21 @@ const LearningPage = ({ onNavigate }) => {
     }
   };
 
+  const loadLevelData = async () => {
+    if (!currentProgress?.area || !currentProgress?.subarea || !currentProgress?.level) return;
+    
+    try {
+      const data = await contentAPI.getLevelDetails(
+        currentProgress.area,
+        currentProgress.subarea,
+        currentProgress.level
+      );
+      setLevelData(data);
+    } catch (error) {
+      console.error('Erro ao carregar dados do nível:', error);
+    }
+  };
+  
   const loadSpecializations = async () => {
     if (!currentProgress?.area || !currentProgress?.subarea) return;
     
@@ -137,42 +205,168 @@ const LearningPage = ({ onNavigate }) => {
     }
   };
 
-  // Navegar para conteúdo específico
   const navigateToSpecificContent = async (level, moduleIndex, lessonIndex = 0) => {
     try {
       setLoadingContent(true);
       
-      try {
-        await api.post('/progress/navigate-to', {
-          area: currentProgress.area,
-          subarea: currentProgress.subarea,
-          level: level,
-          module_index: moduleIndex,
-          lesson_index: lessonIndex,
-          step_index: 0
-        });
-      } catch (apiError) {
-        const updateData = {
-          area: currentProgress?.area,
-          subarea: currentProgress?.subarea,
-          level: level,
-          module_index: moduleIndex,
-          lesson_index: lessonIndex,
-          step_index: 0
-        };
-        
-        await progressAPI.updateCurrentPosition(updateData);
+      // ✅ CORREÇÃO: Garantir que temos TODOS os campos obrigatórios
+      if (!currentProgress?.area || !currentProgress?.subarea) {
+        showError('Área ou subárea não definida. Por favor, recarregue a página.');
+        return;
       }
       
+      const navigationData = {
+        area: currentProgress.area,        // OBRIGATÓRIO
+        subarea: currentProgress.subarea,  // OBRIGATÓRIO
+        level: level,                      // OBRIGATÓRIO
+        module_index: moduleIndex,         // OBRIGATÓRIO
+        lesson_index: lessonIndex,
+        step_index: 0
+      };
+      
+      console.log('📍 Navegando para:', navigationData);
+      
+      await progressAPI.navigateTo(navigationData);
       await loadCurrentContent();
       await loadProgress(true);
       
       setViewMode('current');
       showSuccess('Navegação atualizada!');
     } catch (error) {
+      console.error('❌ Erro na navegação:', error);
       showError('Erro ao navegar: ' + error.message);
     } finally {
       setLoadingContent(false);
+    }
+  };
+
+  const handlePreviousContent = async () => {
+    try {
+      await progressAPI.navigatePrevious();
+      await loadCurrentContent();
+      showSuccess('Voltou para conteúdo anterior');
+    } catch (error) {
+      showError('Erro ao voltar: ' + error.message);
+    }
+  };
+
+  const handleCompleteAndAdvance = async () => {
+    if (!currentContent || !currentProgress) {
+      showError('Informações de progresso não disponíveis');
+      return;
+    }
+  
+    setCompletingLesson(true);
+    
+    try {
+      // Buscar dados do módulo atual para saber os limites
+      const moduleData = await contentAPI.getLevelDetails(
+        currentProgress.area,
+        currentProgress.subarea,
+        currentProgress.level
+      );
+  
+      const currentModuleIndex = currentProgress.module_index || 0;
+      const currentLessonIndex = currentProgress.lesson_index || 0;
+      const currentStepIndex = currentProgress.step_index || 0;
+  
+      const currentModule = moduleData.modules?.[currentModuleIndex];
+      const currentLesson = currentModule?.lessons?.[currentLessonIndex];
+      const totalSteps = currentLesson?.steps?.length || 4;
+      const totalLessons = currentModule?.lessons?.length || 0;
+      const totalModules = moduleData.modules?.length || 0;
+  
+      console.log('📊 Estado atual:', {
+        módulo: `${currentModuleIndex + 1}/${totalModules}`,
+        lição: `${currentLessonIndex + 1}/${totalLessons}`,
+        passo: `${currentStepIndex + 1}/${totalSteps}`
+      });
+  
+      // Determinar próxima posição
+      let nextModuleIndex = currentModuleIndex;
+      let nextLessonIndex = currentLessonIndex;
+      let nextStepIndex = currentStepIndex + 1;
+  
+      // Se completou todos os passos da lição
+      if (nextStepIndex >= totalSteps) {
+        console.log('✅ Lição completada!');
+        
+        // Registrar conclusão da lição
+        const lessonData = {
+          lesson_title: currentLesson?.lesson_title || `Lição ${currentLessonIndex + 1}`,
+          area_name: currentProgress.area,
+          subarea_name: currentProgress.subarea,
+          level_name: currentProgress.level,
+          module_title: currentModule?.module_title || `Módulo ${currentModuleIndex + 1}`,
+          advance_progress: false // Vamos controlar manualmente
+        };
+  
+        const result = await progressAPI.completeLesson(lessonData);
+        
+        showSuccess(`Lição completada! +${result.xp_earned} XP`);
+        updateUser({
+          profile_xp: (user.profile_xp || 0) + result.xp_earned
+        });
+  
+        // Avançar para próxima lição
+        nextStepIndex = 0;
+        nextLessonIndex++;
+  
+        // Se completou todas as lições do módulo
+        if (nextLessonIndex >= totalLessons) {
+          console.log('🎯 Módulo completado!');
+          
+          // Registrar conclusão do módulo
+          await progressAPI.completeModule({
+            module_title: currentModule?.module_title || `Módulo ${currentModuleIndex + 1}`,
+            area_name: currentProgress.area,
+            subarea_name: currentProgress.subarea,
+            level_name: currentProgress.level,
+            advance_progress: false
+          });
+  
+          showSuccess('Módulo completado! 🎉');
+  
+          // Avançar para próximo módulo
+          nextLessonIndex = 0;
+          nextModuleIndex++;
+  
+          // Se completou todos os módulos
+          if (nextModuleIndex >= totalModules) {
+            console.log('🏆 Nível completado!');
+            
+            showSuccess('Parabéns! Você completou este nível! 🏆');
+            
+            // Aqui você pode adicionar lógica para avançar para o próximo nível
+            // ou mostrar opções de especialização
+            
+            // Por enquanto, vamos manter no último módulo
+            nextModuleIndex = currentModuleIndex;
+            nextLessonIndex = currentLessonIndex;
+            nextStepIndex = currentStepIndex;
+          }
+        }
+      }
+  
+      // Navegar para a nova posição
+      await progressAPI.navigateTo({
+        area: currentProgress.area,
+        subarea: currentProgress.subarea,
+        level: currentProgress.level,
+        module_index: nextModuleIndex,
+        lesson_index: nextLessonIndex,
+        step_index: nextStepIndex
+      });
+  
+      // Recarregar conteúdo
+      await loadCurrentContent();
+      await loadProgress(true);
+  
+    } catch (error) {
+      console.error('❌ Erro:', error);
+      showError('Erro ao avançar: ' + error.message);
+    } finally {
+      setCompletingLesson(false);
     }
   };
 
@@ -285,55 +479,6 @@ const LearningPage = ({ onNavigate }) => {
     }
   };
 
-  // Completar lição atual
-  const handleCompleteLesson = async () => {
-    if (!currentContent) return;
-
-    setCompletingLesson(true);
-    try {
-      const result = await completeLesson({
-        lesson_title: currentContent.title,
-        area_name: currentContent.context?.area,
-        subarea_name: currentContent.context?.subarea,
-        level_name: currentContent.context?.level,
-        module_title: currentContent.context?.module,
-        advance_progress: true
-      });
-
-      showSuccess(`Lição completada! +${result.xp_earned} XP`);
-      
-      updateUser({
-        profile_xp: (user.profile_xp || 0) + result.xp_earned
-      });
-
-      if (result.newBadges && result.newBadges.length > 0) {
-        result.newBadges.forEach(badge => {
-          showSuccess(`Nova conquista desbloqueada: ${badge}!`);
-        });
-      }
-
-      await loadCurrentContent();
-      await loadProgress(true);
-
-    } catch (error) {
-      showError('Erro ao completar lição: ' + error.message);
-    } finally {
-      setCompletingLesson(false);
-    }
-  };
-
-  // Avançar progresso manualmente
-  const handleAdvanceProgress = async () => {
-    try {
-      await progressAPI.advanceProgress('lesson');
-      await loadCurrentContent();
-      await loadProgress(true);
-      showSuccess('Progresso avançado!');
-    } catch (error) {
-      showError('Erro ao avançar progresso: ' + error.message);
-    }
-  };
-
   // Perguntar ao professor
   const handleAskTeacher = async () => {
     if (!teacherQuestion.trim()) return;
@@ -395,6 +540,90 @@ const LearningPage = ({ onNavigate }) => {
     } finally {
       setLoadingContent(false);
     }
+  };
+
+  const CourseStructureView = ({ moduleData, currentProgress, onNavigate }) => {
+    if (!moduleData?.modules) return null;
+  
+    return (
+      <div className="space-y-4">
+        <h3 className="text-lg font-semibold mb-3">Estrutura do Curso</h3>
+        
+        {moduleData.modules.map((module, moduleIdx) => {
+          const isCurrentModule = moduleIdx === currentProgress?.module_index;
+          const isCompleted = moduleIdx < currentProgress?.module_index;
+          const isLocked = moduleIdx > currentProgress?.module_index;
+  
+          return (
+            <div key={moduleIdx} className={`border rounded-lg ${
+              isCurrentModule ? 'border-primary-500 bg-primary-50' : 
+              isCompleted ? 'border-green-500 bg-green-50' :
+              isLocked ? 'border-gray-300 bg-gray-50 opacity-60' : ''
+            }`}>
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold flex items-center space-x-2">
+                    {isCompleted && <CheckCircle className="h-5 w-5 text-green-600" />}
+                    {isCurrentModule && <PlayCircle className="h-5 w-5 text-primary-600" />}
+                    {isLocked && <Lock className="h-5 w-5 text-gray-400" />}
+                    <span>Módulo {moduleIdx + 1}: {module.module_title}</span>
+                  </h4>
+                  {isCurrentModule && (
+                    <span className="text-xs bg-primary-100 text-primary-700 px-2 py-1 rounded">
+                      Atual
+                    </span>
+                  )}
+                </div>
+  
+                <p className="text-sm text-gray-600 mb-3">{module.module_description}</p>
+  
+                {/* Mostrar lições do módulo */}
+                <div className="space-y-2 mt-3">
+                  {module.lessons?.map((lesson, lessonIdx) => {
+                    const isCurrentLesson = isCurrentModule && lessonIdx === currentProgress?.lesson_index;
+                    const isCompletedLesson = isCompleted || (isCurrentModule && lessonIdx < currentProgress?.lesson_index);
+  
+                    return (
+                      <div key={lessonIdx} className={`flex items-center space-x-2 text-sm p-2 rounded ${
+                        isCurrentLesson ? 'bg-primary-100' :
+                        isCompletedLesson ? 'bg-green-100' : ''
+                      }`}>
+                        {isCompletedLesson && <CheckCircle2 className="h-4 w-4 text-green-600" />}
+                        {isCurrentLesson && <PlayCircle className="h-4 w-4 text-primary-600" />}
+                        {!isCompletedLesson && !isCurrentLesson && <Circle className="h-4 w-4 text-gray-400" />}
+                        
+                        <span className={isLocked ? 'text-gray-500' : ''}>
+                          Lição {lessonIdx + 1}: {lesson.lesson_title}
+                        </span>
+  
+                        {isCurrentLesson && currentProgress?.step_index !== undefined && (
+                          <span className="text-xs text-primary-600 ml-auto">
+                            Passo {currentProgress.step_index + 1}/{lesson.steps?.length || 4}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+  
+                {/* Botão para navegar (se permitido) */}
+                {!isLocked && (
+                  <div className="mt-3 flex justify-end">
+                    <Button
+                      size="sm"
+                      variant={isCurrentModule ? 'primary' : 'outline'}
+                      onClick={() => onNavigate(moduleIdx, 0, 0)}
+                    >
+                      {isCurrentModule ? 'Continuar' : 'Revisar'}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
   // Componente de Modal de Avaliação
@@ -584,6 +813,53 @@ const LearningPage = ({ onNavigate }) => {
     );
   };
 
+// Substitua o componente ProgressTracker no LearningPage.jsx por este:
+
+const ProgressTracker = ({ currentProgress, moduleData }) => {
+  if (!moduleData || !currentProgress) return null;
+
+  const currentModuleIndex = currentProgress.module_index || 0;
+  const currentLessonIndex = currentProgress.lesson_index || 0;
+  const currentStepIndex = currentProgress.step_index || 0;
+
+  // Buscar informações do módulo atual
+  const currentModule = moduleData.modules?.[currentModuleIndex];
+  const currentLesson = currentModule?.lessons?.[currentLessonIndex];
+  const totalSteps = currentLesson?.steps?.length || 4;
+
+  return (
+    <Card className="mb-4 bg-gradient-to-r from-purple-50 to-indigo-50 border-purple-200">
+      <div className="p-4">
+        <h3 className="text-lg font-semibold text-purple-900 mb-3">
+      📍 Seu Progresso
+        </h3>
+        
+        <div className="flex items-center justify-between">
+          <div className="text-gray-700">
+            <span className="font-medium">Passo:</span>
+            <span className="ml-2 text-lg font-bold text-purple-700">
+              {currentStepIndex + 1} de {totalSteps}
+            </span>
+          </div>
+          
+          {/* Barra de progresso visual */}
+          <div className="flex-1 ml-6">
+            <div className="w-full bg-gray-200 rounded-full h-2.5">
+              <div 
+                className="bg-gradient-to-r from-purple-600 to-indigo-600 h-2.5 rounded-full transition-all duration-300"
+                style={{ width: `${((currentStepIndex + 1) / totalSteps) * 100}%` }}
+              />
+            </div>
+          </div>
+          
+          <div className="ml-4 text-sm font-medium text-purple-700">
+            {Math.round((currentStepIndex + 1) / totalSteps * 100)}%
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+};
   // Componente de Especializações
   const SpecializationsView = ({ specializations, onStartSpecialization }) => {
     if (!specializations || specializations.length === 0) {
@@ -785,7 +1061,7 @@ const LearningPage = ({ onNavigate }) => {
                 Conteúdo Enriquecido com {enrichedContent.type}
               </h5>
               <div className="prose prose-sm max-w-none text-green-800">
-                {enrichedContent.content}
+                <ReactMarkdown>{enrichedContent.content}</ReactMarkdown>
               </div>
               <Button
                 size="sm"
@@ -1087,6 +1363,23 @@ const LearningPage = ({ onNavigate }) => {
               </div>
             )}
 
+            {viewMode === 'browse' && levelData && (
+              <Card>
+                <Card.Header>
+                  <Card.Title>Estrutura Completa do Curso</Card.Title>
+                  <Card.Subtitle>
+                    {currentProgress?.area} - {currentProgress?.subarea} - Nível {currentProgress?.level}
+                  </Card.Subtitle>
+                </Card.Header>
+                
+                <CourseStructureView 
+                  moduleData={levelData}
+                  currentProgress={currentProgress}
+                  onNavigate={navigateToSpecificContent}
+                />
+              </Card>
+            )}
+
             {viewMode === 'specializations' && (
               <SpecializationsView 
                 specializations={availableSpecializations}
@@ -1140,143 +1433,151 @@ const LearningPage = ({ onNavigate }) => {
           
           {/* Card do conteúdo principal */}
           {viewMode === 'current' && (
-            <Card>
-              {/* Header do Conteúdo */}
-              <div className="border-b border-gray-200 pb-4 mb-6">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h1 className="text-2xl font-bold text-gray-900 mb-2">
-                      {currentContent.title}
-                    </h1>
-                    {currentContent.context && (
-                      <div className="flex items-center space-x-2 text-sm text-gray-600">
-                        <span>{currentContent.context.area}</span>
-                        <span>•</span>
-                        <span>{currentContent.context.subarea}</span>
-                        <span>•</span>
-                        <span className="capitalize">{currentContent.context.level}</span>
-                        {currentContent.context.step && (
-                          <>
-                            <span>•</span>
-                            <span>Passo {currentContent.context.step}</span>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="flex items-center space-x-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowTeacherChat(!showTeacherChat)}
-                      leftIcon={<MessageCircle className="h-4 w-4" />}
-                    >
-                      Professor
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleGenerateLesson}
-                      leftIcon={<RefreshCw className="h-4 w-4" />}
-                    >
-                      Nova Lição IA
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Progresso */}
-              {currentProgress && (
-                <div className="mb-6">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-medium text-gray-700">
-                      Progresso no Nível
-                    </span>
-                    <span className="text-sm text-gray-500">
-                      {Math.round(currentProgress.progress_percentage)}%
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="bg-gradient-to-r from-primary-600 to-secondary-600 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${currentProgress.progress_percentage}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Conteúdo da Lição */}
-              <div className="prose prose-sm max-w-none mb-8">
-                {currentContent.content_type === 'step' ? (
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                      {currentContent.context?.lesson}
-                    </h3>
-                    <div className="bg-primary-50 border border-primary-200 rounded-lg p-4 mb-6">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <Lightbulb className="h-5 w-5 text-primary-600" />
-                        <span className="font-medium text-primary-900">
-                          Passo {currentContent.context?.step}
-                        </span>
-                      </div>
-                      <p className="text-primary-800 text-sm">
-                        {currentContent.original_step}
-                      </p>
+            <>
+              {/* Progress Tracker mostrando onde estamos */}
+              <ProgressTracker 
+                currentProgress={currentProgress} 
+                moduleData={levelData}
+              />
+              
+              <Card>
+                {/* Header do Conteúdo */}
+                <div className="border-b border-gray-200 pb-4 mb-6">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h1 className="text-2xl font-bold text-gray-900 mb-2">
+                        {currentContent.title}
+                      </h1>
+                      {currentContent.context && (
+                        <div className="flex items-center space-x-2 text-sm text-gray-600">
+                          <span>{currentContent.context.area}</span>
+                          <span>•</span>
+                          <span>{currentContent.context.subarea}</span>
+                          <span>•</span>
+                          <span className="capitalize">{currentContent.context.level}</span>
+                          {currentContent.context.step && (
+                            <>
+                              <span>•</span>
+                              <span>Passo {currentContent.context.step}</span>
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <div className="text-gray-700 leading-relaxed whitespace-pre-line">
-                      {currentContent.content}
+                    
+                    <div className="flex items-center space-x-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowTeacherChat(!showTeacherChat)}
+                        leftIcon={<MessageCircle className="h-4 w-4" />}
+                      >
+                        Professor
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleGenerateLesson}
+                        leftIcon={<RefreshCw className="h-4 w-4" />}
+                      >
+                        Nova Lição IA
+                      </Button>
                     </div>
                   </div>
-                ) : (
-                  <div className="text-gray-700 leading-relaxed whitespace-pre-line">
-                    {currentContent.content}
+                </div>
+
+                {/* Progresso */}
+                {currentProgress && (
+                  <div className="mb-6">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm font-medium text-gray-700">
+                        Progresso no Nível
+                      </span>
+                      <span className="text-sm text-gray-500">
+                        {Math.round(currentProgress.progress_percentage)}%
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className="bg-gradient-to-r from-primary-600 to-secondary-600 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${currentProgress.progress_percentage}%` }}
+                      />
+                    </div>
                   </div>
                 )}
-              </div>
 
-              {/* Ferramentas de Análise e Feedback */}
-              {currentContent && (
-                <>
-                  <ContentAnalysisTools />
-                  <FeedbackWidget />
-                </>
-              )}
-
-              {/* Actions */}
-              <div className="flex items-center justify-between pt-6 border-t border-gray-200">
-                <div className="flex items-center space-x-4">
-                  {currentContent.navigation?.has_previous && (
-                    <Button
-                      variant="outline"
-                      onClick={handleAdvanceProgress}
-                      leftIcon={<ArrowLeft className="h-4 w-4" />}
-                    >
-                      Anterior
-                    </Button>
+                {/* Conteúdo da Lição */}
+                <div className="prose prose-sm max-w-none mb-8">
+                  {currentContent.content_type === 'step' ? (
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                        {currentContent.context?.lesson}
+                      </h3>
+                      <div className="bg-primary-50 border border-primary-200 rounded-lg p-4 mb-6">
+                        <div className="flex items-center space-x-2 mb-2">
+                          <Lightbulb className="h-5 w-5 text-primary-600" />
+                          <span className="font-medium text-primary-900">
+                            Passo {currentContent.context?.step}
+                          </span>
+                        </div>
+                        <p className="text-primary-800 text-sm">
+                          {currentContent.original_step}
+                        </p>
+                      </div>
+                      <div className="text-gray-700 leading-relaxed">
+                        <ReactMarkdown>{currentContent.content}</ReactMarkdown>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-gray-700 leading-relaxed">
+                      <ReactMarkdown>{currentContent.content}</ReactMarkdown>
+                    </div>
                   )}
                 </div>
 
-                <div className="flex items-center space-x-4">
-                  <Button
-                    onClick={handleCompleteLesson}
-                    loading={completingLesson}
-                    rightIcon={<CheckCircle className="h-4 w-4" />}
-                  >
-                    {completingLesson ? 'Completando...' : 'Completar Lição'}
-                  </Button>
-                  
-                  {currentContent.navigation?.has_next && (
+                {/* Ferramentas de Análise e Feedback */}
+                {currentContent && (
+                  <>
+                    <ContentAnalysisTools />
+                    <FeedbackWidget />
+                  </>
+                )}
+
+                {/* ✅ CORREÇÃO: Actions unificadas */}
+                <div className="flex items-center justify-between pt-6 border-t border-gray-200">
+                  <div className="flex items-center space-x-4">
+                    {currentContent.navigation?.has_previous && (
+                      <Button
+                        variant="outline"
+                        onClick={handlePreviousContent}
+                        leftIcon={<ArrowLeft className="h-4 w-4" />}
+                      >
+                        Anterior
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center space-x-4">
+                    {/* ✅ BOTÃO ÚNICO que completa e avança */}
                     <Button
-                      onClick={handleAdvanceProgress}
-                      rightIcon={<ArrowRight className="h-4 w-4" />}
+                      onClick={handleCompleteAndAdvance}
+                      loading={completingLesson}
+                      rightIcon={
+                        currentContent?.content_type === 'step' && currentProgress?.step_index < 3 ? 
+                          <ArrowRight className="h-4 w-4" /> : 
+                          <CheckCircle className="h-4 w-4" />
+                      }
                     >
-                      Próximo
+                      {completingLesson ? 'Processando...' : 
+                       currentContent?.content_type === 'step' && currentProgress?.step_index < 3 ? 
+                         `Ir para Passo ${(currentProgress?.step_index || 0) + 2}` : 
+                         'Completar Lição e Continuar'
+                      }
                     </Button>
-                  )}
+                  </div>
                 </div>
-              </div>
-            </Card>
+              </Card>
+            </>
           )}
         </div>
 
@@ -1312,7 +1613,7 @@ const LearningPage = ({ onNavigate }) => {
                   <div className="flex items-start space-x-2">
                     <MessageCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
                     <div className="text-sm text-blue-800">
-                      {teacherResponse}
+                      <ReactMarkdown>{teacherResponse}</ReactMarkdown>
                     </div>
                   </div>
                 </div>

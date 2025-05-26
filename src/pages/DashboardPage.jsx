@@ -720,9 +720,11 @@ const DashboardPage = ({ onNavigate }) => {
     </div>
   );
 };
-
-// Componente AreaSwitcher integrado
 const AreaSwitcher = () => {
+  // ✅ CORREÇÃO: Importar user do contexto
+  const { user, updateUser } = useAuth();
+  const { showError, showSuccess } = useNotification();
+  
   const [showAreaModal, setShowAreaModal] = useState(false);
   const [areas, setAreas] = useState([]);
   const [selectedArea, setSelectedArea] = useState(null);
@@ -766,7 +768,7 @@ const AreaSwitcher = () => {
       showSuccess(`Mudou para: ${selectedArea} - ${subareaName}`);
       setShowAreaModal(false);
       
-      // Recarregar página ou navegar
+      // Recarregar página
       window.location.reload();
     } catch (error) {
       showError('Erro ao mudar área: ' + error.message);
@@ -777,13 +779,14 @@ const AreaSwitcher = () => {
     <>
       <Button
         variant="outline"
+        size="sm"
         onClick={() => {
           setShowAreaModal(true);
           loadAreas();
         }}
         leftIcon={<RefreshCw className="h-4 w-4" />}
       >
-        Mudar Área/Subárea
+        Explorar
       </Button>
 
       {showAreaModal && (
