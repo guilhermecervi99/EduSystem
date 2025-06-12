@@ -84,13 +84,12 @@ const MappingPage = ({ onNavigate }) => {
       setResult(result);
       setCurrentStep('result');
       
-      // Atualizar dados do usuário
+      // Atualizar dados do usuário - APENAS a área recomendada
       updateUser({
-        current_track: result.recommended_track,
         recommended_track: result.recommended_track
       });
 
-      showSuccess(`Mapeamento concluído! Sua trilha: ${result.recommended_track}`);
+      showSuccess(`Mapeamento concluído! Sua área recomendada: ${result.recommended_track}`);
     } catch (error) {
       showError('Erro ao submeter mapeamento: ' + error.message);
     } finally {

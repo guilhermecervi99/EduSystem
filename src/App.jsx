@@ -76,12 +76,27 @@ function AppRouter() {
 
   console.log('✅ User is authenticated, checking mapping...');
 
-  // ✅ CORREÇÃO: Verificar se completou mapeamento OU se forceMapping está ativo
+
+  // ✅ CORREÇÃO: Verificar se completou mapeamento E escolheu subárea
   if (!hasCompletedMapping() || forceMapping) {
     console.log('🗺️ Showing mapping page - hasCompletedMapping:', hasCompletedMapping(), 'forceMapping:', forceMapping);
     return (
       <Layout>
-        <MappingPage onComplete={() => setForceMapping(false)} />
+        <MappingPage onComplete={() => {
+          setForceMapping(false);
+          // Após completar mapeamento, ir para seleção de subárea
+          navigate('areas');
+        }} />
+      </Layout>
+    );
+  }
+
+  // Verificar se tem área mas não tem subárea
+  if (user?.recommended_track && !user?.current_track) {
+    console.log('🎯 User has area but no subarea, showing area selection');
+    return (
+      <Layout>
+        <AreaSelectionPage onNavigate={navigate} />
       </Layout>
     );
   }

@@ -1,25 +1,20 @@
-// Criar novo componente: src/pages/AreaSelectionPage.jsx
-import React, { useState, useEffect } from 'react';
-import { contentAPI } from '../services/api';
-import { useAuth } from '../context/AuthContext';
-import { useNotification } from '../context/NotificationContext';
-import Card from '../components/common/Card';
-import Button from '../components/common/Button';
-import { BookOpen, Star, ChevronRight } from 'lucide-react';
-
 const AreaSelectionPage = ({ onNavigate }) => {
   const { user, updateUser } = useAuth();
   const { showSuccess, showError } = useNotification();
   const [areas, setAreas] = useState([]);
   const [selectedArea, setSelectedArea] = useState(null);
   const [subareas, setSubareas] = useState([]);
-  const [recommendedSubarea, setRecommendedSubarea] = useState(null);
   const [loading, setLoading] = useState(false);
 
   // Carregar áreas disponíveis
   useEffect(() => {
-    loadAreas();
-  }, []);
+    // Se o usuário tem área recomendada, carregar direto as subáreas
+    if (user?.recommended_track) {
+      handleAreaSelect(user.recommended_track);
+    } else {
+      loadAreas();
+    }
+  }, [user?.recommended_track]);
 
   const loadAreas = async () => {
     try {
@@ -37,14 +32,6 @@ const AreaSelectionPage = ({ onNavigate }) => {
       const response = await contentAPI.getAreaDetails(areaName);
       setSelectedArea(areaName);
       setSubareas(response.subareas);
-      
-      // Identificar subárea recomendada baseada no mapeamento
-      if (user?.recommended_subarea) {
-        const recommended = response.subareas.find(
-          sub => sub.name === user.recommended_subarea
-        );
-        setRecommendedSubarea(recommended);
-      }
     } catch (error) {
       showError('Erro ao carregar subáreas');
     } finally {
@@ -69,8 +56,8 @@ const AreaSelectionPage = ({ onNavigate }) => {
 
   return (
     <div className="space-y-6">
-      {/* Lista de Áreas */}
-      {!selectedArea ? (
+      {/* Lista de Áreas - só mostrar se não tem área recomendada */}
+      {!selectedArea && !user?.recommended_track ? (
         <>
           <h1 className="text-2xl font-bold">Escolha sua Área de Estudo</h1>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -99,39 +86,37 @@ const AreaSelectionPage = ({ onNavigate }) => {
         <>
           {/* Lista de Subáreas */}
           <div className="flex items-center space-x-4 mb-6">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setSelectedArea(null);
-                setSubareas([]);
-              }}
-            >
-              ← Voltar
-            </Button>
-            <h1 className="text-2xl font-bold">
-              Subáreas de {selectedArea}
-            </h1>
+            {!user?.recommended_track && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSelectedArea(null);
+                  setSubareas([]);
+                }}
+              >
+                ← Voltar
+              </Button>
+            )}
+            <div>
+              <h1 className="text-2xl font-bold">
+                Escolha sua Subárea
+              </h1>
+              <p className="text-gray-600">
+                Área: {selectedArea || user?.recommended_track}
+              </p>
+            </div>
           </div>
 
           <div className="grid md:grid-cols-2 gap-4">
             {subareas.map((subarea) => {
-              const isRecommended = subarea.name === recommendedSubarea?.name;
-              
               return (
                 <Card
                   key={subarea.name}
                   hover
                   clickable
                   onClick={() => handleSubareaSelect(subarea.name)}
-                  className={isRecommended ? 'ring-2 ring-primary-500' : ''}
                 >
                   <div className="p-4">
-                    {isRecommended && (
-                      <div className="flex items-center space-x-1 text-primary-600 mb-2">
-                        <Star className="h-4 w-4 fill-current" />
-                        <span className="text-sm font-medium">Recomendada</span>
-                      </div>
-                    )}
                     <h3 className="font-semibold text-lg mb-2">{subarea.name}</h3>
                     <p className="text-gray-600 text-sm">{subarea.description}</p>
                     <div className="mt-4 text-sm text-gray-500">

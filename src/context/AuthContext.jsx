@@ -392,11 +392,11 @@ const register = useCallback(async (userData) => {
 
   // ✅ CORREÇÃO: Função para verificar se completou o mapeamento
   const hasCompletedMapping = useCallback(() => {
-    // Verificar se o usuário tem current_track definido
-    const result = !!(state.user?.current_track);
-    console.log('🗺️ hasCompletedMapping:', result, 'current_track:', state.user?.current_track);
+    // Verificar se o usuário tem área recomendada do mapeamento
+    const result = !!(state.user?.recommended_track);
+    console.log('🗺️ hasCompletedMapping:', result, 'recommended_track:', state.user?.recommended_track);
     return result;
-  }, [state.user?.current_track]);
+  }, [state.user?.recommended_track]);
 
   // Valor do contexto
   const contextValue = {
