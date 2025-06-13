@@ -1,4 +1,4 @@
-// DashboardPage.jsx - VERSÃO MELHORADA
+// DashboardPage.jsx - VERSÃO COM ATUALIZAÇÃO AUTOMÁTICA
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { 
   BookOpen, 
@@ -16,7 +16,6 @@ import {
   FileText,
   Map,
   BarChart3,
-  RefreshCw,
   Settings,
   Users,
   Brain,
@@ -27,7 +26,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
-import api, { progressAPI, llmAPI } from '../services/api';
+import api, { progressAPI, llmAPI, contentAPI } from '../services/api';
 import { useNotification } from '../context/NotificationContext';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
@@ -58,6 +57,55 @@ const DashboardPage = ({ onNavigate }) => {
   // ✅ CORREÇÃO CRÍTICA: useRef para controlar carregamentos únicos
   const loadedContentRef = useRef(false);
   const lastProgressIdRef = useRef(null);
+  const autoRefreshIntervalRef = useRef(null);
+
+  // ✅ NOVA FUNCIONALIDADE: Auto-refresh automático
+  const startAutoRefresh = useCallback(() => {
+    // Limpar interval anterior se existir
+    if (autoRefreshIntervalRef.current) {
+      clearInterval(autoRefreshIntervalRef.current);
+    }
+
+    // ✅ Auto-refresh a cada 30 segundos (ajustável)
+    autoRefreshIntervalRef.current = setInterval(async () => {
+      try {
+        console.log('🔄 Auto-refresh automático executando...');
+        
+        // Recarregar dados silenciosamente (sem mostrar loading ou notificações)
+        await Promise.allSettled([
+          loadProgress(true),
+          loadAchievements(true), 
+          loadStatistics(true),
+          loadNextSteps(),
+          loadTodayProgress()
+        ]);
+        
+        console.log('✅ Auto-refresh concluído silenciosamente');
+      } catch (error) {
+        console.error('❌ Erro no auto-refresh:', error);
+        // Não mostrar erro para o usuário em auto-refresh
+      }
+    }, 30000); // 30 segundos
+
+    console.log('⏰ Auto-refresh iniciado (30s)');
+  }, [loadProgress, loadAchievements, loadStatistics, loadNextSteps]);
+
+  // ✅ Cleanup do auto-refresh
+  useEffect(() => {
+    return () => {
+      if (autoRefreshIntervalRef.current) {
+        clearInterval(autoRefreshIntervalRef.current);
+        console.log('🛑 Auto-refresh parado');
+      }
+    };
+  }, []);
+
+  // ✅ Iniciar auto-refresh quando componente monta
+  useEffect(() => {
+    if (isInitialized) {
+      startAutoRefresh();
+    }
+  }, [isInitialized, startAutoRefresh]);
 
   // ✅ CORREÇÃO: Função para carregar conteúdo APENAS quando necessário
   const loadCurrentContent = useCallback(async () => {
@@ -202,26 +250,7 @@ const DashboardPage = ({ onNavigate }) => {
     }
   };
 
-  // ✅ CORREÇÃO: useCallback para refresh manual COM throttling
-  const handleRefreshData = useCallback(async () => {
-    try {
-      console.log('🔄 Refresh manual dos dados...');
-      await Promise.allSettled([
-        loadProgress(true),
-        loadAchievements(true), 
-        loadStatistics(true),
-        loadNextSteps(),
-        loadTodayProgress()
-      ]);
-      console.log('✅ Refresh concluído');
-      showSuccess('Dados atualizados!');
-    } catch (error) {
-      console.error('❌ Erro no refresh:', error);
-      showError('Erro ao atualizar dados');
-    }
-  }, [loadProgress, loadAchievements, loadStatistics, loadNextSteps, loadTodayProgress, showSuccess, showError]);
-
-  // ✅ CORREÇÃO: Effect para atualizar badges APENAS quando necessário
+  // ✅ Effect para atualizar badges APENAS quando necessário
   useEffect(() => {
     if (achievements?.badge_categories) {
       updateRecentBadges();
@@ -260,7 +289,7 @@ const DashboardPage = ({ onNavigate }) => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header - ✅ REMOVIDO BOTÃO ATUALIZAR */}
       <div className="bg-gradient-to-r from-primary-600 to-secondary-600 rounded-2xl p-6 text-white">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -295,16 +324,8 @@ const DashboardPage = ({ onNavigate }) => {
             </div>
           </div>
           
-          <div className="mt-4 lg:mt-0 flex space-x-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handleRefreshData}
-              className="text-sm"
-              leftIcon={<RefreshCw className="h-4 w-4" />}
-            >
-              Atualizar
-            </Button>
+          {/* ✅ REMOVIDO BOTÃO ATUALIZAR - SÓ MANTÉM O PRINCIPAL */}
+          <div className="mt-4 lg:mt-0">
             <Button
               variant="accent"
               size="lg"
@@ -314,6 +335,14 @@ const DashboardPage = ({ onNavigate }) => {
               Continuar Aprendendo
             </Button>
           </div>
+        </div>
+      </div>
+
+      {/* ✅ INDICADOR VISUAL DE AUTO-REFRESH */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-2 text-sm text-gray-500">
+          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+          <span>Dados atualizados automaticamente</span>
         </div>
       </div>
 
@@ -504,7 +533,7 @@ const DashboardPage = ({ onNavigate }) => {
 
               <div className="p-4 border rounded-lg">
                 <div className="flex items-center space-x-2 mb-2">
-                  <RefreshCw className="h-5 w-5 text-indigo-600" />
+                  <Target className="h-5 w-5 text-indigo-600" />
                   <h4 className="font-medium">Mudar Área</h4>
                 </div>
                 <p className="text-sm text-gray-600 mb-3">
@@ -514,7 +543,7 @@ const DashboardPage = ({ onNavigate }) => {
               </div>
 
               <button
-                onClick={() => onNavigate?.('ai-tutor')}
+                onClick={() => onNavigate?.('teacher')}
                 className="p-4 text-left border rounded-lg hover:bg-gray-50 transition-colors"
               >
                 <div className="flex items-center space-x-2 mb-2">
@@ -720,8 +749,9 @@ const DashboardPage = ({ onNavigate }) => {
     </div>
   );
 };
+
+// ✅ CORREÇÃO DO BUG: AreaSwitcher não deve ir para mapeamento
 const AreaSwitcher = () => {
-  // ✅ CORREÇÃO: Importar user do contexto
   const { user, updateUser } = useAuth();
   const { showError, showSuccess } = useNotification();
   
@@ -733,8 +763,9 @@ const AreaSwitcher = () => {
 
   const loadAreas = async () => {
     try {
-      const response = await api.get('/content/areas');
-      setAreas(response.data.areas);
+      // ✅ CORREÇÃO: Usar contentAPI importado corretamente
+      const response = await contentAPI.browseAreas();
+      setAreas(response.areas);
     } catch (error) {
       showError('Erro ao carregar áreas');
     }
@@ -743,8 +774,9 @@ const AreaSwitcher = () => {
   const loadSubareas = async (areaName) => {
     setLoading(true);
     try {
-      const response = await api.get(`/content/areas/${areaName}`);
-      setSubareas(response.data.subareas);
+      // ✅ CORREÇÃO: Usar contentAPI importado corretamente
+      const response = await contentAPI.getAreaDetails(areaName);
+      setSubareas(response.subareas);
       setSelectedArea(areaName);
     } catch (error) {
       showError('Erro ao carregar subáreas');
@@ -753,25 +785,64 @@ const AreaSwitcher = () => {
     }
   };
 
+  // ✅ CORREÇÃO PRINCIPAL: handleSwitchArea deve ficar no dashboard
   const handleSwitchArea = async (subareaName) => {
     try {
-      await progressAPI.switchTrack(selectedArea);
-      await api.post(`/content/areas/${selectedArea}/set-current`, null, {
-        params: { subarea_name: subareaName }
-      });
+      setLoading(true);
       
+      console.log('🔄 Mudando para área:', { selectedArea, subareaName });
+      
+      // 1. Verificar se já tem progresso nesta combinação
+      let hasExistingProgress = false;
+      try {
+        const existingProgress = await progressAPI.getProgressForAreaSubarea(selectedArea, subareaName);
+        hasExistingProgress = !!(existingProgress && existingProgress.module_index !== undefined);
+        console.log('📊 Progresso existente:', hasExistingProgress);
+      } catch (error) {
+        hasExistingProgress = false;
+      }
+      
+      // 2. Definir área no backend
+      await contentAPI.setCurrentArea(selectedArea, subareaName);
+      
+      // 3. ✅ CORREÇÃO: Se não tem progresso, inicializar em 0,0,0
+      if (!hasExistingProgress) {
+        console.log('🚀 Inicializando progresso em 0,0,0...');
+        try {
+          await progressAPI.navigateTo({
+            area: selectedArea,
+            subarea: subareaName,
+            level: 'iniciante',
+            module_index: 0,
+            lesson_index: 0,
+            step_index: 0
+          });
+        } catch (initError) {
+          console.error('❌ Erro ao inicializar progresso:', initError);
+        }
+      }
+      
+      // 4. Atualizar usuário
       updateUser({
         current_track: selectedArea,
         current_subarea: subareaName
       });
       
-      showSuccess(`Mudou para: ${selectedArea} - ${subareaName}`);
+      const message = hasExistingProgress 
+        ? `Voltando para: ${selectedArea} - ${subareaName}` 
+        : `Nova área definida: ${selectedArea} - ${subareaName}`;
+      showSuccess(message);
+      
       setShowAreaModal(false);
       
-      // Recarregar página
-      window.location.reload();
+      // ✅ CORREÇÃO CRÍTICA: NÃO recarregar página - deixar dashboard atualizar automaticamente
+      // O auto-refresh vai pegar as mudanças
+      console.log('✅ Área alterada - dashboard vai atualizar automaticamente');
+      
     } catch (error) {
       showError('Erro ao mudar área: ' + error.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -784,7 +855,7 @@ const AreaSwitcher = () => {
           setShowAreaModal(true);
           loadAreas();
         }}
-        leftIcon={<RefreshCw className="h-4 w-4" />}
+        leftIcon={<Target className="h-4 w-4" />}
       >
         Explorar
       </Button>

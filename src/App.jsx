@@ -1,4 +1,4 @@
-// App.jsx - VERSÃO ATUALIZADA COM CORREÇÃO
+// App.jsx - VERSÃO CORRIGIDA PARA FLUXO DE NAVEGAÇÃO
 import React, { useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppProvider } from './context/AppContext';
@@ -25,19 +25,16 @@ import { useNavigation } from './hooks/useNavigation';
 
 // Main App Router Component
 function AppRouter() {
-  const { isAuthenticated, isLoading, hasCompletedMapping, user } = useAuth();
-  const [forceMapping, setForceMapping] = React.useState(false);
+  const { isAuthenticated, isLoading, user } = useAuth();
   const { currentView, navigate } = useNavigation('dashboard');
   
-  // ✅ DEBUG MELHORADO
   console.log('🔍 AppRouter Debug:', { 
     isAuthenticated, 
     isLoading, 
-    hasCompletedMapping: hasCompletedMapping(),
     userEmail: user?.email,
-    currentTrack: user?.current_track,
-    recommendedTrack: user?.recommended_track,
-    forceMapping,
+    hasRecommendedTrack: !!user?.recommended_track,
+    hasCurrentTrack: !!user?.current_track,
+    currentView,
     timestamp: new Date().toISOString()
   });
 
@@ -60,17 +57,65 @@ function AppRouter() {
     return <WelcomePage />;
   }
 
-  console.log('✅ User is authenticated, checking mapping...');
+  console.log('✅ User is authenticated, checking flow...');
 
-  // ✅ CORREÇÃO: Mostrar mapeamento se não tem recommended_track OU se forçou
-  if (!user?.recommended_track || forceMapping) {
-    console.log('🗺️ Mostrando mapeamento - recommended_track:', user?.recommended_track, 'forceMapping:', forceMapping);
+  // ✅ CORREÇÃO CRÍTICA: Priorizar estado do usuário sobre currentView para F5/reload
+  // ORDEM CORRETA: 
+  // 1. Verificar se usuário está completamente configurado PRIMEIRO
+  // 2. Depois verificar navegação manual
+  // 3. Por último, forçar fluxos obrigatórios
+
+  console.log('🔍 Debug detalhado:', {
+    currentView,
+    hasRecommendedTrack: !!user?.recommended_track,
+    hasCurrentTrack: !!user?.current_track,
+    isFullyConfigured: !!(user?.recommended_track && user?.current_track)
+  });
+
+  // 1. ✅ CORREÇÃO F5: Se usuário está completamente configurado, mostrar app principal
+  // (independente do currentView - resolve o bug do F5)
+  if (user?.recommended_track && user?.current_track) {
+    console.log('✅ Usuário completamente configurado - verificando navegação manual');
+    
+    // Permitir navegação manual para mapeamento/áreas mesmo estando configurado
+    if (currentView === 'mapping') {
+      console.log('🗺️ Navegação manual para mapeamento (usuário configurado)');
+      return (
+        <Layout currentView="mapping" onNavigate={navigate}>
+          <MappingPage 
+            onNavigate={navigate} 
+            onComplete={() => {
+              console.log('✅ Re-mapeamento concluído, indo para seleção de áreas');
+              navigate('areas');
+            }} 
+          />
+        </Layout>
+      );
+    }
+
+    if (currentView === 'areas') {
+      console.log('🎯 Navegação manual para seleção de áreas (usuário configurado)');
+      return (
+        <Layout currentView="areas" onNavigate={navigate}>
+          <AreaSelectionPage onNavigate={navigate} />
+        </Layout>
+      );
+    }
+
+    // Se não é navegação manual, mostrar app principal
+    console.log('✅ Mostrando app principal (usuário configurado)');
+    return <AppRoutes />;
+  }
+
+  // 2. Se não tem recommended_track, forçar mapeamento inicial
+  if (!user?.recommended_track) {
+    console.log('🗺️ Usuário sem recommended_track, forçando mapeamento inicial');
     return (
       <Layout>
         <MappingPage 
           onNavigate={navigate} 
           onComplete={() => {
-            setForceMapping(false);
+            console.log('✅ Mapeamento inicial concluído, indo para seleção de áreas');
             navigate('areas');
           }} 
         />
@@ -78,9 +123,9 @@ function AppRouter() {
     );
   }
 
-  // Verificar se tem área mas não tem subárea
+  // 3. Se tem recommended_track mas não tem current_track, ir para seleção
   if (user?.recommended_track && !user?.current_track) {
-    console.log('🎯 User has recommended area but no subarea, showing area selection');
+    console.log('🎯 User tem recommended_track mas não current_track, indo para seleção');
     return (
       <Layout currentView="areas" onNavigate={navigate}>
         <AreaSelectionPage onNavigate={navigate} />
@@ -88,8 +133,8 @@ function AppRouter() {
     );
   }
 
-  // ✅ Authenticated and mapped - show main app
-  console.log('✅ Fully authenticated and mapped, showing main app');
+  // 4. Fallback - não deveria chegar aqui
+  console.warn('⚠️ Estado inesperado, redirecionando para dashboard');
   return <AppRoutes />;
 }
 
@@ -117,7 +162,15 @@ function AppRoutes() {
       case 'resources':
         return <ResourcesPage onNavigate={navigate} />;
       case 'mapping':
-        return <MappingPage onNavigate={navigate} />;
+        return (
+          <MappingPage 
+            onNavigate={navigate} 
+            onComplete={() => {
+              console.log('✅ Re-mapeamento concluído, redirecionando');
+              navigate('dashboard');
+            }} 
+          />
+        );
       case 'teacher':
         return <TeacherPage onNavigate={navigate} />;
       case 'profile':

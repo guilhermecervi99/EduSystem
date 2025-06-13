@@ -200,7 +200,7 @@ export function AuthProvider({ children }) {
     initializeAuth();
   }, []); // Array vazio - executa apenas uma vez
 
-  // ✅ FUNÇÃO LOGIN CORRIGIDA - substituir no AuthContext.jsx
+  // ✅ FUNÇÕES DE LOGIN E REGISTER CORRIGIDAS
 
   const login = useCallback(async (credentials) => {
     console.log('🔑 Login attempt:', credentials.username);
@@ -236,6 +236,12 @@ export function AuthProvider({ children }) {
       });
 
       console.log('🎉 User logged in successfully:', userData.email);
+      
+      // ✅ IMPORTANTE: O redirecionamento será feito pelo AppRouter baseado no estado do usuário
+      // NÃO navegamos manualmente aqui - deixamos o AppRouter decidir baseado em:
+      // - Se tem recommended_track -> Se não: mapeamento, Se sim: continua
+      // - Se tem current_track -> Se não: seleção de área, Se sim: dashboard
+      
       return { success: true, user: userData };
     } catch (error) {
       console.error('❌ Login failed:', error.message);
@@ -248,82 +254,115 @@ export function AuthProvider({ children }) {
     }
   }, [saveToStorage]);
 
-// Correção completa da função register no AuthContext.jsx
-// Substitua toda a função register por esta:
+  const register = useCallback(async (userData) => {
+    console.log('📝 Register attempt:', userData.email);
+    dispatch({ type: AUTH_ACTIONS.AUTH_START });
 
-const register = useCallback(async (userData) => {
-  console.log('📝 Register attempt:', userData.email);
-  dispatch({ type: AUTH_ACTIONS.AUTH_START });
-
-  try {
-    // ✅ Usar os dados fornecidos pelo usuário
-    const registerData = {
-      email: userData.email,
-      password: userData.password,
-      age: userData.age,
-      learning_style: userData.learning_style
-    };
-
-    console.log('📤 Enviando dados de registro:', registerData);
-
-    const registerResponse = await authAPI.register(registerData);
-    const { access_token, user_id } = registerResponse;
-
-    console.log('✅ Registration successful, token received');
-
-    // ✅ CORREÇÃO CRÍTICA: Salvar token ANTES de fazer qualquer outra chamada
-    if (access_token) {
-      localStorage.setItem(STORAGE_KEYS.TOKEN, access_token);
-      // IMPORTANTE: Também configurar o token no axios imediatamente
-      api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
-      console.log('✅ Token saved and configured in axios');
+    // Validações
+    if (!userData.email || !validateEmail(userData.email)) {
+      const error = 'Por favor, insira um email válido';
+      dispatch({
+        type: AUTH_ACTIONS.AUTH_FAILURE,
+        payload: { error },
+      });
+      return { success: false, error };
     }
 
-    // Pequeno delay para garantir que o token foi processado
-    await new Promise(resolve => setTimeout(resolve, 100));
+    if (!userData.password || userData.password.length < 6) {
+      const error = 'A senha deve ter pelo menos 6 caracteres';
+      dispatch({
+        type: AUTH_ACTIONS.AUTH_FAILURE,
+        payload: { error },
+      });
+      return { success: false, error };
+    }
 
-    // Agora sim buscar dados do usuário (com token configurado)
-    console.log('👤 Fetching user data with token...');
-    const userDetails = await authAPI.getCurrentUser();
-    console.log('✅ User data received:', userDetails.email);
+    if (!userData.age || userData.age < 10 || userData.age > 100) {
+      const error = 'Por favor, insira uma idade válida';
+      dispatch({
+        type: AUTH_ACTIONS.AUTH_FAILURE,
+        payload: { error },
+      });
+      return { success: false, error };
+    }
 
-    // Salvar dados do usuário
-    saveToStorage(access_token, userDetails);
+    try {
+      // ✅ Usar os dados fornecidos pelo usuário
+      const registerData = {
+        email: userData.email.toLowerCase().trim(),
+        password: userData.password,
+        age: parseInt(userData.age),
+        learning_style: userData.learning_style
+      };
 
-    // Dispatch success
-    dispatch({
-      type: AUTH_ACTIONS.AUTH_SUCCESS,
-      payload: {
-        token: access_token,
+      console.log('📤 Enviando dados de registro:', registerData);
+
+      const registerResponse = await authAPI.register(registerData);
+      const { access_token, user_id } = registerResponse;
+
+      console.log('✅ Registration successful, token received');
+
+      // ✅ CORREÇÃO CRÍTICA: Salvar token ANTES de fazer qualquer outra chamada
+      if (access_token) {
+        localStorage.setItem(STORAGE_KEYS.TOKEN, access_token);
+        // IMPORTANTE: Também configurar o token no axios imediatamente
+        api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
+        console.log('✅ Token saved and configured in axios');
+      }
+
+      // Pequeno delay para garantir que o token foi processado
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Agora sim buscar dados do usuário (com token configurado)
+      console.log('👤 Fetching user data with token...');
+      const userDetails = await authAPI.getCurrentUser();
+      console.log('✅ User data received:', userDetails.email);
+
+      // Salvar dados do usuário
+      saveToStorage(access_token, userDetails);
+
+      // Dispatch success
+      dispatch({
+        type: AUTH_ACTIONS.AUTH_SUCCESS,
+        payload: {
+          token: access_token,
+          user: userDetails,
+        },
+      });
+
+      console.log('🎉 User registered successfully:', userDetails.email);
+      
+      // ✅ IMPORTANTE: Para registro, o usuário SEMPRE deve ir para o mapeamento
+      // pois não tem recommended_track ainda. O AppRouter vai detectar isso automaticamente
+      // e redirecionar para o mapeamento.
+      
+      return { 
+        success: true, 
         user: userDetails,
-      },
-    });
+        needsMapping: true // Flag indicativa (o AppRouter que decide realmente)
+      };
+      
+    } catch (error) {
+      console.error('❌ Registration failed:', error.message);
+      
+      // Limpar qualquer token inválido
+      localStorage.removeItem(STORAGE_KEYS.TOKEN);
+      delete api.defaults.headers.common['Authorization'];
+      
+      dispatch({
+        type: AUTH_ACTIONS.AUTH_FAILURE,
+        payload: { error: error.message },
+      });
 
-    console.log('🎉 User registered successfully:', userDetails.email);
-    
-    // ✅ IMPORTANTE: Retornar com flag indicando que precisa ir pro mapeamento
-    return { 
-      success: true, 
-      user: userDetails,
-      needsMapping: !userDetails.current_track // Se não tem trilha, precisa mapear
-    };
-    
-  } catch (error) {
-    console.error('❌ Registration failed:', error.message);
-    
-    // Limpar qualquer token inválido
-    localStorage.removeItem(STORAGE_KEYS.TOKEN);
-    delete api.defaults.headers.common['Authorization'];
-    
-    dispatch({
-      type: AUTH_ACTIONS.AUTH_FAILURE,
-      payload: { error: error.message },
-    });
+      return { success: false, error: error.message };
+    }
+  }, [saveToStorage]);
 
-    return { success: false, error: error.message };
-  }
-}, [saveToStorage]);
-
+  // ✅ FUNÇÃO AUXILIAR PARA VALIDAÇÃO DE EMAIL
+  const validateEmail = (email) => {
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(email);
+  };
 
   // Função de logout
   const logout = useCallback(async () => {

@@ -8,7 +8,7 @@ import Card from '../components/common/Card';
 import Loading from '../components/common/Loading';
 
 const MappingPage = ({ onNavigate, onComplete }) => {
-  const { updateUser } = useAuth();
+  const { user, updateUser } = useAuth();
   const { showSuccess, showError } = useNotification();
   const [currentStep, setCurrentStep] = useState('intro');
   const [mappingSession, setMappingSession] = useState(null);
@@ -18,6 +18,19 @@ const MappingPage = ({ onNavigate, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
+  const [isRemapping, setIsRemapping] = useState(false);
+
+  // ✅ CORREÇÃO: Detectar se é um re-mapeamento
+  useEffect(() => {
+    const hasExistingTrack = !!(user?.recommended_track || user?.current_track);
+    setIsRemapping(hasExistingTrack);
+    console.log('🗺️ MappingPage - Detectando tipo:', {
+      hasExistingTrack,
+      recommended_track: user?.recommended_track,
+      current_track: user?.current_track,
+      isRemapping: hasExistingTrack
+    });
+  }, [user]);
 
   // Inicializar mapeamento
   const startMapping = async () => {
@@ -70,7 +83,7 @@ const MappingPage = ({ onNavigate, onComplete }) => {
     }
   };
 
-  // Submeter mapeamento
+  // ✅ CORREÇÃO PRINCIPAL: Submeter mapeamento e limpar dados conflitantes
   const submitMapping = async () => {
     setSubmitting(true);
     try {
@@ -80,16 +93,32 @@ const MappingPage = ({ onNavigate, onComplete }) => {
         text_response: textResponse.trim() || null
       };
 
+      console.log('📤 Submetendo mapeamento:', mappingData);
       const result = await mappingAPI.submitMapping(mappingData);
       setResult(result);
       setCurrentStep('result');
       
-      // Atualizar dados do usuário - APENAS a área recomendada
-      updateUser({
+      // ✅ CORREÇÃO CRÍTICA: Ao fazer novo mapeamento, limpar current_track
+      // para forçar a seleção de nova área
+      const updateData = {
         recommended_track: result.recommended_track
-      });
+      };
+      
+      // Se é um re-mapeamento, limpar a área atual para forçar nova seleção
+      if (isRemapping) {
+        console.log('🔄 Re-mapeamento detectado - limpando current_track');
+        updateData.current_track = null;
+        updateData.current_subarea = null;
+      }
+      
+      console.log('👤 Atualizando usuário com:', updateData);
+      updateUser(updateData);
 
-      showSuccess(`Mapeamento concluído! Sua área recomendada: ${result.recommended_track}`);
+      const message = isRemapping 
+        ? `Re-mapeamento concluído! Nova área recomendada: ${result.recommended_track}`
+        : `Mapeamento concluído! Sua área recomendada: ${result.recommended_track}`;
+      
+      showSuccess(message);
     } catch (error) {
       showError('Erro ao submeter mapeamento: ' + error.message);
     } finally {
@@ -114,12 +143,27 @@ const MappingPage = ({ onNavigate, onComplete }) => {
           <Target className="h-8 w-8 text-primary-600" />
         </div>
         <h1 className="text-3xl font-bold text-gray-900 mb-4">
-          Mapeamento de Interesses
+          {isRemapping ? 'Novo Mapeamento de Interesses' : 'Mapeamento de Interesses'}
         </h1>
         <p className="text-lg text-gray-600 mb-6">
-          Vamos descobrir suas áreas de interesse através de algumas perguntas. 
-          Isso nos ajudará a criar uma trilha de aprendizado personalizada para você.
+          {isRemapping 
+            ? 'Vamos descobrir suas novas áreas de interesse e criar uma nova trilha personalizada para você.'
+            : 'Vamos descobrir suas áreas de interesse através de algumas perguntas. Isso nos ajudará a criar uma trilha de aprendizado personalizada para você.'
+          }
         </p>
+        
+        {isRemapping && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+            <div className="flex items-center space-x-2 mb-2">
+              <div className="w-4 h-4 bg-blue-600 rounded-full"></div>
+              <h3 className="font-semibold text-blue-900">Re-mapeamento</h3>
+            </div>
+            <p className="text-sm text-blue-800">
+              Você já tinha uma área de estudo definida ({user?.current_track || user?.recommended_track}). 
+              Ao finalizar este novo mapeamento, você poderá escolher uma nova área de estudo.
+            </p>
+          </div>
+        )}
       </div>
 
       <Card className="text-left">
@@ -148,7 +192,10 @@ const MappingPage = ({ onNavigate, onComplete }) => {
               <span className="text-xs font-bold text-primary-600">3</span>
             </div>
             <p className="text-gray-700">
-              Receba sua trilha personalizada e comece a aprender!
+              {isRemapping 
+                ? 'Escolha sua nova área de estudo e comece a aprender!'
+                : 'Receba sua trilha personalizada e comece a aprender!'
+              }
             </p>
           </div>
         </div>
@@ -161,7 +208,7 @@ const MappingPage = ({ onNavigate, onComplete }) => {
           loading={loading}
           rightIcon={<ArrowRight className="h-5 w-5" />}
         >
-          Começar Mapeamento
+          {isRemapping ? 'Começar Novo Mapeamento' : 'Começar Mapeamento'}
         </Button>
       </div>
     </div>
@@ -307,7 +354,8 @@ const MappingPage = ({ onNavigate, onComplete }) => {
       </Card>
     </div>
   );
-  // Renderizar resultado
+
+  // ✅ CORREÇÃO: Renderizar resultado com navegação correta
   const renderResult = () => {
     if (!result) return null;
 
@@ -318,10 +366,13 @@ const MappingPage = ({ onNavigate, onComplete }) => {
             <Award className="h-8 w-8 text-success-600" />
           </div>
           <h1 className="text-3xl font-bold text-gray-900 mb-4">
-            Mapeamento Concluído!
+            {isRemapping ? 'Novo Mapeamento Concluído!' : 'Mapeamento Concluído!'}
           </h1>
           <p className="text-lg text-gray-600">
-            Sua trilha de aprendizado personalizada está pronta
+            {isRemapping 
+              ? 'Sua nova trilha de aprendizado personalizada está pronta'
+              : 'Sua trilha de aprendizado personalizada está pronta'
+            }
           </p>
         </div>
 
@@ -329,7 +380,7 @@ const MappingPage = ({ onNavigate, onComplete }) => {
           {/* Trilha Recomendada */}
           <Card>
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Sua Trilha Principal
+              {isRemapping ? 'Sua Nova Trilha Principal' : 'Sua Trilha Principal'}
             </h3>
             <div className="text-center p-6 bg-primary-50 rounded-lg">
               <h4 className="text-xl font-bold text-primary-900 mb-2">
@@ -391,26 +442,30 @@ const MappingPage = ({ onNavigate, onComplete }) => {
           <Button
             size="lg"
             onClick={() => {
-              // Chamar onComplete se existir
+              console.log('🎯 Finalizando mapeamento, chamando onComplete...');
+              
+              // ✅ CORREÇÃO: Sempre chamar onComplete para ir para seleção de áreas
+              // O AppRouter vai detectar que tem recommended_track mas não current_track
+              // e vai mostrar a AreaSelectionPage
               if (onComplete) {
                 onComplete();
               } else if (onNavigate) {
-                // Fallback para onNavigate
+                // Fallback: ir para seleção de áreas
                 onNavigate('areas');
               } else {
-                // Fallback direto se não houver nenhum
                 console.error('Nenhuma função de navegação disponível!');
                 showError('Erro ao navegar. Por favor, recarregue a página.');
               }
             }}
             rightIcon={<ArrowRight className="h-5 w-5" />}
           >
-            Escolher Subárea
+            {isRemapping ? 'Escolher Nova Subárea' : 'Escolher Subárea'}
           </Button>
         </div>
       </div>
     );
-  };    
+  };
+  
   // Render principal
   return (
     <div className="min-h-screen bg-gray-50 py-8">

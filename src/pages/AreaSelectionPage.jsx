@@ -49,42 +49,84 @@ const AreaSelectionPage = ({ onNavigate }) => {
     }
   };
 
-  // Definir área e subárea atual
+  // ✅ CORREÇÃO PRINCIPAL: Definir área/subárea e inicializar progresso corretamente
   const handleSubareaSelect = async (subareaName) => {
     try {
       setLoading(true);
       
-      // 1. Define a área e subárea no backend
-      await contentAPI.setCurrentArea(selectedArea, subareaName);
+      console.log('🎯 Iniciando seleção de subárea:', {
+        area: selectedArea,
+        subarea: subareaName,
+        currentUser: user
+      });
       
-      // 2. IMPORTANTE: Navegar para o início (0,0,0) para criar o progresso
+      // 1. Verificar se já tem progresso nesta combinação área/subárea
+      let hasExistingProgress = false;
       try {
-        await progressAPI.navigateTo({
-          area: selectedArea,
-          subarea: subareaName,
-          level: 'iniciante',
-          module_index: 0,
-          lesson_index: 0,
-          step_index: 0
-        });
-        console.log('✅ Progresso inicializado no início');
+        // Tentar carregar progresso existente para esta área/subárea
+        const existingProgress = await progressAPI.getProgressForAreaSubarea(selectedArea, subareaName);
+        hasExistingProgress = !!(existingProgress && existingProgress.module_index !== undefined);
+        console.log('📊 Progresso existente encontrado:', existingProgress);
       } catch (error) {
-        console.error('Erro ao inicializar progresso:', error);
+        // Se não encontrar progresso, é normal - significa que é nova área
+        console.log('📭 Nenhum progresso existente para esta área/subárea');
+        hasExistingProgress = false;
       }
       
-      // 3. Atualizar o usuário local
+      // 2. Definir a área atual no backend
+      console.log('🔧 Definindo área atual no backend...');
+      await contentAPI.setCurrentArea(selectedArea, subareaName);
+      
+      // 3. Atualizar dados do usuário localmente PRIMEIRO
+      console.log('👤 Atualizando dados do usuário...');
       updateUser({
         current_track: selectedArea,
         current_subarea: subareaName
       });
       
-      showSuccess(`Área definida: ${selectedArea} - ${subareaName}`);
+      // 4. ✅ CORREÇÃO CRÍTICA: Inicializar progresso se não existir
+      if (!hasExistingProgress) {
+        console.log('🚀 Inicializando progresso em 0,0,0 para nova área/subárea...');
+        try {
+          await progressAPI.navigateTo({
+            area: selectedArea,
+            subarea: subareaName,
+            level: 'iniciante',
+            module_index: 0,
+            lesson_index: 0,
+            step_index: 0
+          });
+          console.log('✅ Progresso inicializado com sucesso em 0,0,0');
+        } catch (initError) {
+          console.error('❌ Erro ao inicializar progresso:', initError);
+          // Mesmo com erro de inicialização, vamos continuar
+          showError('Progresso inicializado com problema, mas você pode continuar estudando');
+        }
+      } else {
+        console.log('📚 Retornando ao progresso existente');
+        showSuccess(`Retornando ao seu progresso em ${selectedArea} - ${subareaName}`);
+      }
       
-      // 4. Navegar para learning
-      onNavigate('learning');
+      // 5. Mostrar sucesso
+      const message = hasExistingProgress 
+        ? `Voltando para: ${selectedArea} - ${subareaName}` 
+        : `Nova área definida: ${selectedArea} - ${subareaName}`;
+      showSuccess(message);
+      
+      // 6. ✅ CORREÇÃO: Navegar para o dashboard
+      // O dashboard vai detectar que há current_track e mostrar as opções corretas
+      console.log('🏠 Navegando para dashboard...');
+      onNavigate('dashboard');
+      
     } catch (error) {
+      console.error('❌ Erro completo na seleção de subárea:', error);
       showError('Erro ao definir área: ' + error.message);
-      console.error('Erro completo:', error);
+      
+      // Em caso de erro, reverter mudanças no usuário
+      updateUser({
+        current_track: user?.current_track || null,
+        current_subarea: user?.current_subarea || null
+      });
     } finally {
       setLoading(false);
     }
@@ -197,22 +239,34 @@ const AreaSelectionPage = ({ onNavigate }) => {
 
           {loading ? (
             <div className="flex items-center justify-center min-h-[400px]">
-              <Loading size="lg" text="Carregando subáreas..." />
+              <Loading size="lg" text="Processando seleção..." />
             </div>
           ) : (
             <div className="grid md:grid-cols-2 gap-4">
               {subareas.map((subarea) => {
+                // Verificar se é a subárea atual do usuário
+                const isCurrentSubarea = selectedArea === user?.current_track && 
+                                       subarea.name === user?.current_subarea;
+                
                 return (
                   <Card
                     key={subarea.name}
                     hover
                     clickable
                     onClick={() => handleSubareaSelect(subarea.name)}
+                    className={isCurrentSubarea ? 'ring-2 ring-green-500 bg-green-50' : ''}
                   >
                     <div className="p-4">
                       <div className="flex items-start justify-between mb-3">
                         <h3 className="font-semibold text-lg">{subarea.name}</h3>
-                        <BookOpen className="h-5 w-5 text-primary-600" />
+                        <div className="flex items-center space-x-2">
+                          <BookOpen className="h-5 w-5 text-primary-600" />
+                          {isCurrentSubarea && (
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                              Atual
+                            </span>
+                          )}
+                        </div>
                       </div>
                       
                       <p className="text-gray-600 text-sm mb-4">{subarea.description}</p>
@@ -230,12 +284,12 @@ const AreaSelectionPage = ({ onNavigate }) => {
                       
                       <div className="mt-4 pt-4 border-t border-gray-200">
                         <Button
-                          variant="primary"
+                          variant={isCurrentSubarea ? "success" : "primary"}
                           size="sm"
                           fullWidth
                           rightIcon={<ChevronRight className="h-4 w-4" />}
                         >
-                          Começar com esta subárea
+                          {isCurrentSubarea ? 'Continuar nesta subárea' : 'Começar com esta subárea'}
                         </Button>
                       </div>
                     </div>
@@ -252,8 +306,8 @@ const AreaSelectionPage = ({ onNavigate }) => {
                 💡 <strong>Dica:</strong> Não se preocupe se não souber qual escolher! 
               </p>
               <p className="text-sm text-gray-600">
-                Você pode trocar de subárea a qualquer momento e seu progresso será salvo.
-                Use o botão "Escolher Aleatoriamente" se estiver indeciso!
+                Você pode trocar de subárea a qualquer momento. Se você já estudou uma subárea antes, 
+                seu progresso será mantido. Se for uma nova subárea, começaremos do zero.
               </p>
             </div>
           </Card>

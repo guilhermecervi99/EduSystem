@@ -249,6 +249,39 @@ export const progressAPI = {
     return response.data;
   },
 
+    // ✅ NOVA FUNÇÃO: Verificar se usuário tem progresso em área/subárea
+  async hasProgressInAreaSubarea(area, subarea) {
+    try {
+      const progress = await this.getProgressForAreaSubarea(area, subarea);
+      return !!(progress && (
+        progress.module_index > 0 || 
+        progress.lesson_index > 0 || 
+        progress.step_index > 0 ||
+        progress.completed_lessons > 0
+      ));
+    } catch (error) {
+      return false;
+    }
+  },
+
+    // ✅ NOVA FUNÇÃO: Inicializar progresso para nova área/subárea
+  async initializeProgress(area, subarea, level = 'iniciante') {
+    try {
+      const response = await api.post('/progress/initialize', {
+        area,
+        subarea,
+        level,
+        module_index: 0,
+        lesson_index: 0,
+        step_index: 0
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao inicializar progresso:', error);
+      throw error;
+    }
+  },
+  // ✅ CORREÇÃO ADICIONAL: Melhorar navigateTo com mais validações
   async navigateTo(navigationData) {
     try {
       // ✅ Validar dados obrigatórios ANTES de enviar
@@ -269,19 +302,35 @@ export const progressAPI = {
         step_index: parseInt(navigationData.step_index) || 0
       };
       
-      console.log('📤 Enviando navegação:', validatedData);
+      console.log('📤 Enviando navegação para API:', validatedData);
       
       // Enviar como query parameters (como o backend espera)
       const response = await api.post('/progress/navigate-to', null, {
         params: validatedData
       });
       
+      console.log('✅ Navegação realizada com sucesso:', response.data);
       return response.data;
     } catch (error) {
       console.error('❌ Navigation error:', error);
+      
+      // Se for erro 404 ou similar, tentar criar progresso inicial
+      if (error.response?.status === 404) {
+        console.log('🔄 Tentando criar progresso inicial...');
+        try {
+          const createResponse = await api.post('/progress/initialize', validatedData);
+          console.log('✅ Progresso inicial criado:', createResponse.data);
+          return createResponse.data;
+        } catch (createError) {
+          console.error('❌ Erro ao criar progresso inicial:', createError);
+          throw createError;
+        }
+      }
+      
       throw error;
     }
   },
+
 
   
   async completeAndAdvance(lessonData) {
@@ -483,6 +532,22 @@ export const llmAPI = {
     
     const response = await api.post('/llm/simplify-content', data);
     return response.data;
+  },
+
+    // ✅ NOVA FUNÇÃO: Verificar progresso para área/subárea específica
+  async getProgressForAreaSubarea(area, subarea) {
+    try {
+      const response = await api.get('/progress/area-subarea', {
+        params: { area, subarea }
+      });
+      return response.data;
+    } catch (error) {
+      // Se retornar 404, significa que não há progresso para esta combinação
+      if (error.response?.status === 404) {
+        return null;
+      }
+      throw error;
+    }
   },
 
   async enrichContent(content, enrichmentType = 'exemplos') {
