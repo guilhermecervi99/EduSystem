@@ -7,7 +7,7 @@ import Button from '../components/common/Button';
 import Card from '../components/common/Card';
 import Loading from '../components/common/Loading';
 
-const MappingPage = ({ onNavigate }) => {
+const MappingPage = ({ onNavigate, onComplete }) => {
   const { updateUser } = useAuth();
   const { showSuccess, showError } = useNotification();
   const [currentStep, setCurrentStep] = useState('intro');
@@ -307,7 +307,6 @@ const MappingPage = ({ onNavigate }) => {
       </Card>
     </div>
   );
-
   // Renderizar resultado
   const renderResult = () => {
     if (!result) return null;
@@ -391,16 +390,27 @@ const MappingPage = ({ onNavigate }) => {
         <div className="text-center">
           <Button
             size="lg"
-            onClick={() => onNavigate?.('dashboard')}
+            onClick={() => {
+              // Chamar onComplete se existir
+              if (onComplete) {
+                onComplete();
+              } else if (onNavigate) {
+                // Fallback para onNavigate
+                onNavigate('areas');
+              } else {
+                // Fallback direto se não houver nenhum
+                console.error('Nenhuma função de navegação disponível!');
+                showError('Erro ao navegar. Por favor, recarregue a página.');
+              }
+            }}
             rightIcon={<ArrowRight className="h-5 w-5" />}
           >
-            Ir para Dashboard
+            Escolher Subárea
           </Button>
         </div>
       </div>
     );
-  };
-
+  };    
   // Render principal
   return (
     <div className="min-h-screen bg-gray-50 py-8">

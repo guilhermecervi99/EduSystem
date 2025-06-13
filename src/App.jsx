@@ -27,7 +27,8 @@ import { useNavigation } from './hooks/useNavigation';
 function AppRouter() {
   const { isAuthenticated, isLoading, hasCompletedMapping, user } = useAuth();
   const [forceMapping, setForceMapping] = React.useState(false);
-
+  const { currentView, navigate } = useNavigation('dashboard');
+  
   // ✅ DEBUG MELHORADO
   console.log('🔍 AppRouter Debug:', { 
     isAuthenticated, 
@@ -35,25 +36,10 @@ function AppRouter() {
     hasCompletedMapping: hasCompletedMapping(),
     userEmail: user?.email,
     currentTrack: user?.current_track,
+    recommendedTrack: user?.recommended_track,
     forceMapping,
     timestamp: new Date().toISOString()
   });
-
-  // ✅ CORREÇÃO: UseEffect para detectar quando precisa ir pro mapeamento
-  useEffect(() => {
-    if (isAuthenticated && !isLoading && user) {
-      console.log('🔍 Verificando necessidade de mapeamento...');
-      console.log('User current_track:', user.current_track);
-      
-      // Se não tem current_track, forçar mapeamento
-      if (!user.current_track) {
-        console.log('🗺️ Usuário sem current_track, forçando mapeamento');
-        setForceMapping(true);
-      } else {
-        setForceMapping(false);
-      }
-    }
-  }, [isAuthenticated, isLoading, user]);
 
   // Show loading screen while checking authentication
   if (isLoading) {
@@ -76,26 +62,27 @@ function AppRouter() {
 
   console.log('✅ User is authenticated, checking mapping...');
 
-
-  // ✅ CORREÇÃO: Verificar se completou mapeamento E escolheu subárea
-  if (!hasCompletedMapping() || forceMapping) {
-    console.log('🗺️ Showing mapping page - hasCompletedMapping:', hasCompletedMapping(), 'forceMapping:', forceMapping);
+  // ✅ CORREÇÃO: Mostrar mapeamento se não tem recommended_track OU se forçou
+  if (!user?.recommended_track || forceMapping) {
+    console.log('🗺️ Mostrando mapeamento - recommended_track:', user?.recommended_track, 'forceMapping:', forceMapping);
     return (
       <Layout>
-        <MappingPage onComplete={() => {
-          setForceMapping(false);
-          // Após completar mapeamento, ir para seleção de subárea
-          navigate('areas');
-        }} />
+        <MappingPage 
+          onNavigate={navigate} 
+          onComplete={() => {
+            setForceMapping(false);
+            navigate('areas');
+          }} 
+        />
       </Layout>
     );
   }
 
   // Verificar se tem área mas não tem subárea
   if (user?.recommended_track && !user?.current_track) {
-    console.log('🎯 User has area but no subarea, showing area selection');
+    console.log('🎯 User has recommended area but no subarea, showing area selection');
     return (
-      <Layout>
+      <Layout currentView="areas" onNavigate={navigate}>
         <AreaSelectionPage onNavigate={navigate} />
       </Layout>
     );
@@ -133,6 +120,14 @@ function AppRoutes() {
         return <MappingPage onNavigate={navigate} />;
       case 'teacher':
         return <TeacherPage onNavigate={navigate} />;
+      case 'profile':
+        // Temporariamente redirecionar para dashboard até criar ProfilePage
+        console.warn('ProfilePage não implementada, redirecionando para dashboard');
+        return <DashboardPage onNavigate={navigate} />;
+      case 'settings':
+        // Temporariamente redirecionar para dashboard até criar SettingsPage
+        console.warn('SettingsPage não implementada, redirecionando para dashboard');
+        return <DashboardPage onNavigate={navigate} />;
       default:
         console.warn(`View desconhecida: ${currentView}, redirecionando para dashboard`);
         return <DashboardPage onNavigate={navigate} />;

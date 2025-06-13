@@ -80,6 +80,9 @@ const LearningPage = ({ onNavigate }) => {
   useEffect(() => {
     if (currentProgress?.area && currentProgress?.subarea && currentProgress?.level) {
       loadLevelData();
+    } else {
+      // Se não tem progresso, apenas carregar o conteúdo
+      loadCurrentContent();
     }
   }, [currentProgress?.area, currentProgress?.subarea, currentProgress?.level]);
   
@@ -95,7 +98,6 @@ const LearningPage = ({ onNavigate }) => {
       loadSpecializations();
     }
   }, [currentProgress?.area, currentProgress?.subarea]);
-
   const loadCurrentContent = async () => {
     setLoadingContent(true);
     try {
@@ -118,7 +120,7 @@ const LearningPage = ({ onNavigate }) => {
       if (!content.context) {
         content.context = {
           area: currentProgress?.area || user?.current_track || 'Geral',
-          subarea: currentProgress?.subarea || 'Geral',
+          subarea: currentProgress?.subarea || user?.current_subarea || 'Geral',
           level: currentProgress?.level || 'iniciante',
           module: `Módulo ${(currentProgress?.module_index || 0) + 1}`,
           lesson: content.title
@@ -128,31 +130,31 @@ const LearningPage = ({ onNavigate }) => {
       setCurrentContent(content);
     } catch (error) {
       console.error('Erro ao carregar conteúdo:', error);
+      showError('Erro ao carregar conteúdo: ' + error.message);
       
-      // Se falhar, criar conteúdo de fallback
+      // Criar conteúdo de fallback simples
       const fallbackContent = {
-        title: 'Conteúdo de Estudo',
-        content: 'Erro ao carregar conteúdo. Por favor, tente novamente.',
+        title: 'Erro ao carregar',
+        content: 'Não foi possível carregar o conteúdo. Por favor, recarregue a página.',
         content_type: 'error',
         context: {
           area: currentProgress?.area || user?.current_track || 'Geral',
-          subarea: currentProgress?.subarea || 'Geral',
+          subarea: currentProgress?.subarea || user?.current_subarea || 'Geral',
           level: currentProgress?.level || 'iniciante',
-          module: `Módulo ${(currentProgress?.module_index || 0) + 1}`
+          module: 'Módulo 1'
         },
         navigation: {
-          has_previous: (currentProgress?.module_index || 0) > 0,
+          has_previous: false,
           has_next: true
         }
       };
       
       setCurrentContent(fallbackContent);
-      showError('Erro ao carregar conteúdo: ' + error.message);
     } finally {
       setLoadingContent(false);
     }
   };
-
+  
   const loadSubareaStructure = async () => {
     if (!currentProgress?.area || !currentProgress?.subarea) return;
     
