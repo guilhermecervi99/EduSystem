@@ -77,14 +77,14 @@ const AreaSelectionPage = ({ onNavigate }) => {
       console.log('🔧 Definindo área atual no backend...');
       await contentAPI.setCurrentArea(selectedArea, subareaName);
       
-      // 3. Atualizar dados do usuário localmente PRIMEIRO
+      // 3. ✅ CORREÇÃO CRÍTICA: Atualizar dados do usuário PRIMEIRO
       console.log('👤 Atualizando dados do usuário...');
       updateUser({
         current_track: selectedArea,
         current_subarea: subareaName
       });
       
-      // 4. ✅ CORREÇÃO CRÍTICA: Inicializar progresso se não existir
+      // 4. ✅ CORREÇÃO: Inicializar progresso se não existir
       if (!hasExistingProgress) {
         console.log('🚀 Inicializando progresso em 0,0,0 para nova área/subárea...');
         try {
@@ -113,10 +113,12 @@ const AreaSelectionPage = ({ onNavigate }) => {
         : `Nova área definida: ${selectedArea} - ${subareaName}`;
       showSuccess(message);
       
-      // 6. ✅ CORREÇÃO: Navegar para o dashboard
-      // O dashboard vai detectar que há current_track e mostrar as opções corretas
-      console.log('🏠 Navegando para dashboard...');
-      onNavigate('dashboard');
+      // 6. ✅ CORREÇÃO CRÍTICA: Aguardar um momento antes de navegar
+      // para garantir que as mudanças foram processadas
+      setTimeout(() => {
+        console.log('🏠 Navegando para dashboard após delay...');
+        onNavigate('dashboard');
+      }, 1500); // 1,5 segundos de delay
       
     } catch (error) {
       console.error('❌ Erro completo na seleção de subárea:', error);
@@ -288,8 +290,10 @@ const AreaSelectionPage = ({ onNavigate }) => {
                           size="sm"
                           fullWidth
                           rightIcon={<ChevronRight className="h-4 w-4" />}
+                          disabled={loading}
                         >
-                          {isCurrentSubarea ? 'Continuar nesta subárea' : 'Começar com esta subárea'}
+                          {loading ? 'Processando...' : 
+                           isCurrentSubarea ? 'Continuar nesta subárea' : 'Começar com esta subárea'}
                         </Button>
                       </div>
                     </div>
@@ -309,6 +313,18 @@ const AreaSelectionPage = ({ onNavigate }) => {
                 Você pode trocar de subárea a qualquer momento. Se você já estudou uma subárea antes, 
                 seu progresso será mantido. Se for uma nova subárea, começaremos do zero.
               </p>
+              
+              {/* ✅ Indicador de processamento */}
+              {loading && (
+                <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                  <div className="flex items-center justify-center space-x-2">
+                    <Loading.Inline size="sm" />
+                    <span className="text-sm text-blue-700">
+                      Configurando sua nova área de estudo...
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </Card>
         </>

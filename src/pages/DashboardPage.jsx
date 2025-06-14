@@ -1,4 +1,4 @@
-// DashboardPage.jsx - VERSÃO COM ATUALIZAÇÃO AUTOMÁTICA
+// DashboardPage.jsx - VERSÃO CORRIGIDA PARA RECARREGAR COM NOVA ÁREA
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { 
   BookOpen, 
@@ -54,24 +54,90 @@ const DashboardPage = ({ onNavigate }) => {
   const [todayProgress, setTodayProgress] = useState(null);
   const [weeklyGoal, setWeeklyGoal] = useState({ target: 5, completed: 0 });
   
-  // ✅ CORREÇÃO CRÍTICA: useRef para controlar carregamentos únicos
+  // ✅ CORREÇÃO CRÍTICA: Rastrear mudanças de área/subárea
+  const [lastUserTrack, setLastUserTrack] = useState(null);
+  const [lastUserSubarea, setLastUserSubarea] = useState(null);
+  
+  // ✅ useRef para controlar carregamentos únicos
   const loadedContentRef = useRef(false);
   const lastProgressIdRef = useRef(null);
   const autoRefreshIntervalRef = useRef(null);
 
-  // ✅ NOVA FUNCIONALIDADE: Auto-refresh automático
+  // ✅ CORREÇÃO PRINCIPAL: Detectar mudança de área/subárea e forçar reload
+  useEffect(() => {
+    const currentTrack = user?.current_track;
+    const currentSubarea = user?.current_subarea;
+    
+    // Se área/subárea mudou, forçar reload completo
+    if (currentTrack && currentSubarea && 
+        (currentTrack !== lastUserTrack || currentSubarea !== lastUserSubarea)) {
+      
+      console.log('🔄 Área/subárea mudou! Forçando reload completo:', {
+        anterior: { track: lastUserTrack, subarea: lastUserSubarea },
+        atual: { track: currentTrack, subarea: currentSubarea }
+      });
+      
+      // Atualizar referências
+      setLastUserTrack(currentTrack);
+      setLastUserSubarea(currentSubarea);
+      
+      // Forçar reload de todos os dados
+      forceFullReload();
+    } else if (currentTrack && currentSubarea && !lastUserTrack && !lastUserSubarea) {
+      // Primeira vez carregando
+      setLastUserTrack(currentTrack);
+      setLastUserSubarea(currentSubarea);
+    }
+  }, [user?.current_track, user?.current_subarea]);
+
+  // ✅ FUNÇÃO PARA FORÇAR RELOAD COMPLETO
+  const forceFullReload = useCallback(async () => {
+    console.log('🔄 Iniciando reload completo do dashboard...');
+    
+    try {
+      // Limpar estados atuais
+      setCurrentContent(null);
+      setTodayProgress(null);
+      setWeeklyGoal({ target: 5, completed: 0 });
+      setRecentBadges([]);
+      
+      // Limpar refs
+      loadedContentRef.current = false;
+      lastProgressIdRef.current = null;
+      
+      // Forçar reload de todos os dados do AppContext
+      await Promise.allSettled([
+        loadProgress(true),
+        loadAchievements(true),
+        loadStatistics(true),
+        loadNextSteps()
+      ]);
+      
+      // Carregar dados específicos do dashboard
+      await loadTodayProgress();
+      
+      console.log('✅ Reload completo concluído!');
+      showSuccess('Dashboard atualizado com nova área!');
+      
+    } catch (error) {
+      console.error('❌ Erro no reload completo:', error);
+      showError('Erro ao atualizar dashboard');
+    }
+  }, [loadProgress, loadAchievements, loadStatistics, loadNextSteps]);
+
+  // ✅ CORREÇÃO: Auto-refresh melhorado
   const startAutoRefresh = useCallback(() => {
     // Limpar interval anterior se existir
     if (autoRefreshIntervalRef.current) {
       clearInterval(autoRefreshIntervalRef.current);
     }
 
-    // ✅ Auto-refresh a cada 30 segundos (ajustável)
+    // Auto-refresh a cada 45 segundos (reduzido de 30s)
     autoRefreshIntervalRef.current = setInterval(async () => {
       try {
         console.log('🔄 Auto-refresh automático executando...');
         
-        // Recarregar dados silenciosamente (sem mostrar loading ou notificações)
+        // Recarregar dados silenciosamente
         await Promise.allSettled([
           loadProgress(true),
           loadAchievements(true), 
@@ -83,11 +149,10 @@ const DashboardPage = ({ onNavigate }) => {
         console.log('✅ Auto-refresh concluído silenciosamente');
       } catch (error) {
         console.error('❌ Erro no auto-refresh:', error);
-        // Não mostrar erro para o usuário em auto-refresh
       }
-    }, 30000); // 30 segundos
+    }, 45000); // 45 segundos
 
-    console.log('⏰ Auto-refresh iniciado (30s)');
+    console.log('⏰ Auto-refresh iniciado (45s)');
   }, [loadProgress, loadAchievements, loadStatistics, loadNextSteps]);
 
   // ✅ Cleanup do auto-refresh
@@ -156,7 +221,7 @@ const DashboardPage = ({ onNavigate }) => {
       console.error('Erro ao processar badges:', error);
       setRecentBadges([]);
     }
-  }, [achievements?.badge_categories]); // Dependência específica
+  }, [achievements?.badge_categories]);
 
   // ✅ CORREÇÃO: useCallback estável para cálculo de nível
   const getNextLevelInfo = useCallback(() => {
@@ -173,7 +238,7 @@ const DashboardPage = ({ onNavigate }) => {
       progress,
       xpNeeded: nextLevelXP - (currentXP % 100)
     };
-  }, [user?.profile_xp, user?.profile_level]); // Dependências específicas
+  }, [user?.profile_xp, user?.profile_level]);
 
   // Carregar progresso do dia
   const loadTodayProgress = useCallback(async () => {
@@ -255,7 +320,7 @@ const DashboardPage = ({ onNavigate }) => {
     if (achievements?.badge_categories) {
       updateRecentBadges();
     }
-  }, [updateRecentBadges]); // Dependência do callback
+  }, [updateRecentBadges]);
 
   // ✅ CORREÇÃO: Effect para carregar conteúdo APENAS quando progresso mudar
   useEffect(() => {
@@ -289,7 +354,7 @@ const DashboardPage = ({ onNavigate }) => {
 
   return (
     <div className="space-y-6">
-      {/* Header - ✅ REMOVIDO BOTÃO ATUALIZAR */}
+      {/* Header */}
       <div className="bg-gradient-to-r from-primary-600 to-secondary-600 rounded-2xl p-6 text-white">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -298,7 +363,7 @@ const DashboardPage = ({ onNavigate }) => {
             </h1>
             <p className="text-primary-100 mb-4">
               {user?.current_track 
-                ? `Continuando seus estudos em ${user.current_track}`
+                ? `Continuando seus estudos em ${user.current_track} - ${user.current_subarea || 'Geral'}`
                 : 'Pronto para começar sua jornada de aprendizado?'
               }
             </p>
@@ -324,7 +389,6 @@ const DashboardPage = ({ onNavigate }) => {
             </div>
           </div>
           
-          {/* ✅ REMOVIDO BOTÃO ATUALIZAR - SÓ MANTÉM O PRINCIPAL */}
           <div className="mt-4 lg:mt-0">
             <Button
               variant="accent"
@@ -344,6 +408,16 @@ const DashboardPage = ({ onNavigate }) => {
           <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
           <span>Dados atualizados automaticamente</span>
         </div>
+        
+        {/* ✅ BOTÃO MANUAL DE REFRESH */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={forceFullReload}
+          leftIcon={<ArrowRight className="h-4 w-4" />}
+        >
+          Atualizar Agora
+        </Button>
       </div>
 
       {/* Stats Cards */}
@@ -539,7 +613,7 @@ const DashboardPage = ({ onNavigate }) => {
                 <p className="text-sm text-gray-600 mb-3">
                   Explore outras áreas de estudo ou altere sua trilha atual
                 </p>
-                <AreaSwitcher />
+                <AreaSwitcher onAreaChanged={forceFullReload} />
               </div>
 
               <button
@@ -750,8 +824,8 @@ const DashboardPage = ({ onNavigate }) => {
   );
 };
 
-// ✅ CORREÇÃO DO BUG: AreaSwitcher não deve ir para mapeamento
-const AreaSwitcher = () => {
+// ✅ COMPONENTE CORRIGIDO: AreaSwitcher com callback
+const AreaSwitcher = ({ onAreaChanged }) => {
   const { user, updateUser } = useAuth();
   const { showError, showSuccess } = useNotification();
   
@@ -763,7 +837,6 @@ const AreaSwitcher = () => {
 
   const loadAreas = async () => {
     try {
-      // ✅ CORREÇÃO: Usar contentAPI importado corretamente
       const response = await contentAPI.browseAreas();
       setAreas(response.areas);
     } catch (error) {
@@ -774,7 +847,6 @@ const AreaSwitcher = () => {
   const loadSubareas = async (areaName) => {
     setLoading(true);
     try {
-      // ✅ CORREÇÃO: Usar contentAPI importado corretamente
       const response = await contentAPI.getAreaDetails(areaName);
       setSubareas(response.subareas);
       setSelectedArea(areaName);
@@ -785,7 +857,6 @@ const AreaSwitcher = () => {
     }
   };
 
-  // ✅ CORREÇÃO PRINCIPAL: handleSwitchArea deve ficar no dashboard
   const handleSwitchArea = async (subareaName) => {
     try {
       setLoading(true);
@@ -805,7 +876,7 @@ const AreaSwitcher = () => {
       // 2. Definir área no backend
       await contentAPI.setCurrentArea(selectedArea, subareaName);
       
-      // 3. ✅ CORREÇÃO: Se não tem progresso, inicializar em 0,0,0
+      // 3. Se não tem progresso, inicializar em 0,0,0
       if (!hasExistingProgress) {
         console.log('🚀 Inicializando progresso em 0,0,0...');
         try {
@@ -835,9 +906,12 @@ const AreaSwitcher = () => {
       
       setShowAreaModal(false);
       
-      // ✅ CORREÇÃO CRÍTICA: NÃO recarregar página - deixar dashboard atualizar automaticamente
-      // O auto-refresh vai pegar as mudanças
-      console.log('✅ Área alterada - dashboard vai atualizar automaticamente');
+      // ✅ CORREÇÃO CRÍTICA: Chamar callback para forçar reload do dashboard
+      if (onAreaChanged) {
+        setTimeout(() => {
+          onAreaChanged();
+        }, 1000); // Pequeno delay para dar tempo das mudanças serem processadas
+      }
       
     } catch (error) {
       showError('Erro ao mudar área: ' + error.message);
@@ -857,7 +931,7 @@ const AreaSwitcher = () => {
         }}
         leftIcon={<Target className="h-4 w-4" />}
       >
-        Explorar
+        Trocar Área
       </Button>
 
       {showAreaModal && (

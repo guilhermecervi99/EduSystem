@@ -34,6 +34,7 @@ function AppRouter() {
     userEmail: user?.email,
     hasRecommendedTrack: !!user?.recommended_track,
     hasCurrentTrack: !!user?.current_track,
+    hasCurrentSubarea: !!user?.current_subarea,
     currentView,
     timestamp: new Date().toISOString()
   });
@@ -59,57 +60,23 @@ function AppRouter() {
 
   console.log('✅ User is authenticated, checking flow...');
 
-  // ✅ CORREÇÃO CRÍTICA: Priorizar estado do usuário sobre currentView para F5/reload
-  // ORDEM CORRETA: 
-  // 1. Verificar se usuário está completamente configurado PRIMEIRO
-  // 2. Depois verificar navegação manual
-  // 3. Por último, forçar fluxos obrigatórios
+  // ✅ CORREÇÃO PRINCIPAL: Verificar se o usuário está COMPLETAMENTE configurado
+  const isUserCompletelyConfigured = !!(user?.current_track && user?.current_subarea);
+  const hasRecommendedTrack = !!user?.recommended_track;
+  const isNewUser = !hasRecommendedTrack && !user?.current_track;
 
-  console.log('🔍 Debug detalhado:', {
-    currentView,
-    hasRecommendedTrack: !!user?.recommended_track,
-    hasCurrentTrack: !!user?.current_track,
-    isFullyConfigured: !!(user?.recommended_track && user?.current_track)
+  console.log('🔍 Estado do usuário:', {
+    isUserCompletelyConfigured,
+    hasRecommendedTrack,
+    isNewUser,
+    current_track: user?.current_track,
+    current_subarea: user?.current_subarea,
+    recommended_track: user?.recommended_track
   });
 
-  // 1. ✅ CORREÇÃO F5: Se usuário está completamente configurado, mostrar app principal
-  // (independente do currentView - resolve o bug do F5)
-  if (user?.recommended_track && user?.current_track) {
-    console.log('✅ Usuário completamente configurado - verificando navegação manual');
-    
-    // Permitir navegação manual para mapeamento/áreas mesmo estando configurado
-    if (currentView === 'mapping') {
-      console.log('🗺️ Navegação manual para mapeamento (usuário configurado)');
-      return (
-        <Layout currentView="mapping" onNavigate={navigate}>
-          <MappingPage 
-            onNavigate={navigate} 
-            onComplete={() => {
-              console.log('✅ Re-mapeamento concluído, indo para seleção de áreas');
-              navigate('areas');
-            }} 
-          />
-        </Layout>
-      );
-    }
-
-    if (currentView === 'areas') {
-      console.log('🎯 Navegação manual para seleção de áreas (usuário configurado)');
-      return (
-        <Layout currentView="areas" onNavigate={navigate}>
-          <AreaSelectionPage onNavigate={navigate} />
-        </Layout>
-      );
-    }
-
-    // Se não é navegação manual, mostrar app principal
-    console.log('✅ Mostrando app principal (usuário configurado)');
-    return <AppRoutes />;
-  }
-
-  // 2. Se não tem recommended_track, forçar mapeamento inicial
-  if (!user?.recommended_track) {
-    console.log('🗺️ Usuário sem recommended_track, forçando mapeamento inicial');
+  // ✅ CORREÇÃO: Só forçar mapeamento se for usuário NOVO (sem recommended_track)
+  if (isNewUser) {
+    console.log('🆕 Usuário novo sem mapeamento, forçando mapeamento inicial');
     return (
       <Layout>
         <MappingPage 
@@ -123,9 +90,9 @@ function AppRouter() {
     );
   }
 
-  // 3. Se tem recommended_track mas não tem current_track, ir para seleção
-  if (user?.recommended_track && !user?.current_track) {
-    console.log('🎯 User tem recommended_track mas não current_track, indo para seleção');
+  // ✅ CORREÇÃO: Só forçar seleção de área se tem recommended_track mas não current_track
+  if (hasRecommendedTrack && !user?.current_track) {
+    console.log('🎯 Tem recommended_track mas não current_track, indo para seleção');
     return (
       <Layout currentView="areas" onNavigate={navigate}>
         <AreaSelectionPage onNavigate={navigate} />
@@ -133,7 +100,41 @@ function AppRouter() {
     );
   }
 
-  // 4. Fallback - não deveria chegar aqui
+  // ✅ CORREÇÃO: Se usuário está completamente configurado, mostrar app principal
+  if (isUserCompletelyConfigured) {
+    console.log('✅ Usuário completamente configurado, mostrando app principal');
+    
+    // ✅ PERMITIR navegação manual para mapeamento (NOVO mapeamento)
+    if (currentView === 'mapping') {
+      console.log('🗺️ Navegação manual para NOVO mapeamento');
+      return (
+        <Layout currentView="mapping" onNavigate={navigate}>
+          <MappingPage 
+            onNavigate={navigate} 
+            onComplete={() => {
+              console.log('✅ Novo mapeamento concluído, indo para seleção de áreas');
+              navigate('areas');
+            }} 
+          />
+        </Layout>
+      );
+    }
+
+    // ✅ PERMITIR navegação manual para áreas (trocar área)
+    if (currentView === 'areas') {
+      console.log('🎯 Navegação manual para seleção de áreas');
+      return (
+        <Layout currentView="areas" onNavigate={navigate}>
+          <AreaSelectionPage onNavigate={navigate} />
+        </Layout>
+      );
+    }
+
+    // ✅ MOSTRAR APP PRINCIPAL
+    return <AppRoutes />;
+  }
+
+  // ✅ Fallback - não deveria chegar aqui
   console.warn('⚠️ Estado inesperado, redirecionando para dashboard');
   return <AppRoutes />;
 }
@@ -167,7 +168,7 @@ function AppRoutes() {
             onNavigate={navigate} 
             onComplete={() => {
               console.log('✅ Re-mapeamento concluído, redirecionando');
-              navigate('dashboard');
+              navigate('areas');
             }} 
           />
         );
