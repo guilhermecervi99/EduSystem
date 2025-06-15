@@ -716,7 +716,7 @@ export const contentAPI = {
 
   async getLevelDetails(areaName, subareaName, levelName) {
     const response = await api.get(
-      `/content/areas/${areaName}/subareas/${subareaName}/levels/${levelName}`
+      `/content/areas/${encodeURI(areaName)}/subareas/${encodeURI(subareaName)}/levels/${encodeURI(levelName)}`
     );
     return response.data;
   },

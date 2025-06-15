@@ -53,7 +53,8 @@ const AreaSelectionPage = ({ onNavigate }) => {
   const handleSubareaSelect = async (subareaName) => {
     try {
       setLoading(true);
-      
+      console.log('🎯 Selecionando subárea - Nome recebido:', subareaName);
+      console.log('🎯 Tipo do parâmetro:', typeof subareaName);
       console.log('🎯 Iniciando seleção de subárea:', {
         area: selectedArea,
         subarea: subareaName,
