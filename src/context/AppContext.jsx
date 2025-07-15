@@ -1,7 +1,7 @@
-// AppContext.jsx - VERSÃO CORRIGIDA PARA EVITAR LOOPS
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import { progressAPI, achievementsAPI } from '../services/api';
+
 // Estado inicial
 const initialState = {
   // UI State
@@ -26,6 +26,9 @@ const initialState = {
   
   // Initialization state
   isInitialized: false,
+  
+  // Navigation state
+  isNavigating: false,
 };
 
 // Actions
@@ -50,6 +53,10 @@ const APP_ACTIONS = {
   UPDATE_CACHE_TIMESTAMP: 'UPDATE_CACHE_TIMESTAMP',
   CLEAR_CACHE: 'CLEAR_CACHE',
   SET_INITIALIZED: 'SET_INITIALIZED',
+  
+  // Navigation Actions
+  SET_NAVIGATING: 'SET_NAVIGATING',
+  FORCE_UPDATE_PROGRESS: 'FORCE_UPDATE_PROGRESS',
 };
 
 // Reducer
@@ -74,9 +81,41 @@ function appReducer(state, action) {
       };
 
     case APP_ACTIONS.SET_PROGRESS:
+      // IMPORTANTE: Validar campos essenciais
+      if (!action.payload) {
+        console.warn('⚠️ Tentativa de setar progresso vazio bloqueada');
+        return state;
+      }
+      
+      const validProgress = action.payload && 
+        action.payload.area && 
+        action.payload.subarea && 
+        action.payload.level !== undefined;
+        
+      if (!validProgress) {
+        console.warn('⚠️ Progresso inválido:', action.payload);
+        return state;
+      }
+      
+      // Salvar no sessionStorage como backup
+      sessionStorage.setItem('currentProgress', JSON.stringify(action.payload));
+      
       return {
         ...state,
         currentProgress: action.payload,
+        progressLoading: false,
+        lastProgressUpdate: Date.now(),
+      };
+      
+    case APP_ACTIONS.FORCE_UPDATE_PROGRESS:
+      // Força atualização do progresso sem validação
+      if (!action.payload) return state;
+      
+      sessionStorage.setItem('currentProgress', JSON.stringify(action.payload));
+      
+      return {
+        ...state,
+        currentProgress: { ...action.payload },
         progressLoading: false,
         lastProgressUpdate: Date.now(),
       };
@@ -120,6 +159,12 @@ function appReducer(state, action) {
         ...state,
         statisticsLoading: action.payload,
       };
+      
+    case APP_ACTIONS.SET_NAVIGATING:
+      return {
+        ...state,
+        isNavigating: action.payload,
+      };
 
     case APP_ACTIONS.UPDATE_CACHE_TIMESTAMP:
       return {
@@ -128,6 +173,7 @@ function appReducer(state, action) {
       };
 
     case APP_ACTIONS.CLEAR_CACHE:
+      sessionStorage.removeItem('currentProgress');
       return {
         ...state,
         currentProgress: null,
@@ -138,6 +184,7 @@ function appReducer(state, action) {
         lastAchievementsUpdate: null,
         lastStatisticsUpdate: null,
         isInitialized: false,
+        isNavigating: false,
       };
 
     case APP_ACTIONS.SET_INITIALIZED:
@@ -168,11 +215,12 @@ export function AppProvider({ children }) {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const { isAuthenticated, user, updateUser } = useAuth();
   
-  // ✅ CORREÇÃO CRÍTICA: useRef para controlar operações únicas
+  // Refs para controle
   const initializationRef = useRef(false);
   const activeOperationsRef = useRef(new Set());
+  const lastNavigationRef = useRef(null);
 
-  // Cache TTL (10 minutos em vez de 5)
+  // Cache TTL (10 minutos)
   const CACHE_TTL = 10 * 60 * 1000;
 
   // Função para verificar se o cache é válido
@@ -181,19 +229,34 @@ export function AppProvider({ children }) {
     return Date.now() - timestamp < CACHE_TTL;
   }, []);
 
-  // ✅ CORREÇÃO: useCallback com controle rigoroso de operações simultâneas
+  // Função para forçar atualização do progresso (usada após navegação)
+  const forceUpdateProgress = useCallback((newProgress) => {
+    console.log('🔄 Forçando atualização do progresso:', newProgress);
+    dispatch({ type: APP_ACTIONS.FORCE_UPDATE_PROGRESS, payload: newProgress });
+  }, []);
+
+  // Função para definir estado de navegação
+  const setNavigating = useCallback((isNavigating) => {
+    dispatch({ type: APP_ACTIONS.SET_NAVIGATING, payload: isNavigating });
+  }, []);
+
   const loadProgress = useCallback(async (forceRefresh = false) => {
     if (!isAuthenticated || !user) return null;
 
     const operationKey = 'loadProgress';
     
-    // Evitar múltiplas chamadas simultâneas
+    // Se está navegando, esperar
+    if (state.isNavigating) {
+      console.log('🚫 Navegação em andamento, aguardando...');
+      return state.currentProgress;
+    }
+    
     if (activeOperationsRef.current.has(operationKey)) {
       console.log('⏭️ loadProgress já está em execução, pulando...');
       return state.currentProgress;
     }
 
-    // Verificar cache válido
+    // Verificar cache apenas se não for forceRefresh
     if (!forceRefresh && isCacheValid(state.lastProgressUpdate) && state.currentProgress) {
       console.log('📋 Cache de progresso ainda válido');
       return state.currentProgress;
@@ -203,21 +266,114 @@ export function AppProvider({ children }) {
     dispatch({ type: APP_ACTIONS.SET_PROGRESS_LOADING, payload: true });
 
     try {
-      console.log('📊 Carregando progresso...');
+      console.log('📊 Carregando progresso do servidor...');
+      
       const progress = await progressAPI.getCurrentProgress();
-      dispatch({ type: APP_ACTIONS.SET_PROGRESS, payload: progress });
-      console.log('✅ Progresso carregado:', progress);
-      return progress;
+      
+      console.log('✅ Progresso recebido da API:', progress);
+      
+      // Validar se o progresso retornado é válido
+      if (progress && progress.area && progress.subarea && progress.level !== undefined) {
+        dispatch({ type: APP_ACTIONS.SET_PROGRESS, payload: progress });
+        
+        // Verificar se houve mudança significativa
+        if (state.currentProgress) {
+          const changed = (
+            state.currentProgress.area !== progress.area ||
+            state.currentProgress.subarea !== progress.subarea ||
+            state.currentProgress.level !== progress.level ||
+            state.currentProgress.module_index !== progress.module_index ||
+            state.currentProgress.lesson_index !== progress.lesson_index
+          );
+          
+          if (changed) {
+            console.log('📍 Progresso mudou significativamente');
+          }
+        }
+        
+        return progress;
+      } else {
+        console.warn('⚠️ Progresso inválido recebido da API:', progress);
+        
+        // Tentar recuperar do sessionStorage
+        const savedProgress = sessionStorage.getItem('currentProgress');
+        if (savedProgress) {
+          const parsed = JSON.parse(savedProgress);
+          console.log('📦 Usando progresso do sessionStorage:', parsed);
+          dispatch({ type: APP_ACTIONS.SET_PROGRESS, payload: parsed });
+          return parsed;
+        }
+        
+        return null;
+      }
     } catch (error) {
       console.error('❌ Erro ao carregar progresso:', error);
       dispatch({ type: APP_ACTIONS.SET_PROGRESS_LOADING, payload: false });
+      
+      // Em caso de erro, tentar usar cache local
+      const savedProgress = sessionStorage.getItem('currentProgress');
+      if (savedProgress) {
+        const parsed = JSON.parse(savedProgress);
+        return parsed;
+      }
+      
       return null;
     } finally {
       activeOperationsRef.current.delete(operationKey);
     }
-  }, [isAuthenticated, user, state.lastProgressUpdate, state.currentProgress, isCacheValid]);
+  }, [isAuthenticated, user, state.lastProgressUpdate, state.currentProgress, state.isNavigating, isCacheValid]);
 
-  // ✅ CORREÇÃO: useCallback com controle de operações simultâneas
+  // Função específica para navegação
+  const navigateAndUpdateProgress = useCallback(async (navigationData) => {
+    console.log('🧭 navigateAndUpdateProgress:', navigationData);
+    
+    // Prevenir navegação duplicada
+    const navKey = JSON.stringify(navigationData);
+    if (lastNavigationRef.current === navKey) {
+      console.log('🚫 Navegação duplicada detectada, ignorando');
+      return state.currentProgress;
+    }
+    
+    lastNavigationRef.current = navKey;
+    setNavigating(true);
+    
+    try {
+      // Fazer a navegação
+      await progressAPI.navigateTo(navigationData);
+      
+      // Aguardar um pouco para o servidor processar
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Forçar atualização do progresso
+      const newProgress = await loadProgress(true);
+      
+      // Se o progresso não foi atualizado corretamente, forçar manualmente
+      if (newProgress && (
+        newProgress.level !== navigationData.level ||
+        newProgress.module_index !== navigationData.module_index ||
+        newProgress.lesson_index !== navigationData.lesson_index
+      )) {
+        console.log('⚠️ Progresso não atualizado corretamente, forçando...');
+        const forcedProgress = {
+          ...newProgress,
+          ...navigationData
+        };
+        forceUpdateProgress(forcedProgress);
+        return forcedProgress;
+      }
+      
+      return newProgress;
+    } catch (error) {
+      console.error('❌ Erro na navegação:', error);
+      throw error;
+    } finally {
+      setNavigating(false);
+      setTimeout(() => {
+        lastNavigationRef.current = null;
+      }, 1000);
+    }
+  }, [state.currentProgress, loadProgress, setNavigating, forceUpdateProgress]);
+
   const loadAchievements = useCallback(async (forceRefresh = false) => {
     if (!isAuthenticated || !user) return null;
 
@@ -251,7 +407,6 @@ export function AppProvider({ children }) {
     }
   }, [isAuthenticated, user, state.lastAchievementsUpdate, state.achievements, isCacheValid]);
 
-  // ✅ CORREÇÃO: useCallback com controle de operações simultâneas
   const loadStatistics = useCallback(async (forceRefresh = false) => {
     if (!isAuthenticated || !user) return null;
 
@@ -285,7 +440,6 @@ export function AppProvider({ children }) {
     }
   }, [isAuthenticated, user, state.lastStatisticsUpdate, state.statistics, isCacheValid]);
 
-  // ✅ CORREÇÃO: useCallback com controle de operações simultâneas
   const loadNextSteps = useCallback(async () => {
     if (!isAuthenticated || !user) return [];
 
@@ -313,14 +467,11 @@ export function AppProvider({ children }) {
     }
   }, [isAuthenticated, user, state.nextSteps]);
 
-  // ✅ CORREÇÃO: Função para carregar dados iniciais COM controle rigoroso
   const initializeAppData = useCallback(async () => {
-    // Múltiplas verificações para evitar execução duplicada
     if (!isAuthenticated || !user || initializationRef.current || state.isInitialized) {
       return;
     }
 
-    // Verificar se já temos dados válidos em cache
     const hasValidCache = (
       isCacheValid(state.lastProgressUpdate) && state.currentProgress &&
       isCacheValid(state.lastAchievementsUpdate) && state.achievements &&
@@ -338,7 +489,6 @@ export function AppProvider({ children }) {
     try {
       console.log('🚀 Inicializando dados do app...');
       
-      // Carregar dados em paralelo COM Promise.allSettled para não falhar tudo se um falhar
       const promises = [];
       
       if (!isCacheValid(state.lastProgressUpdate) || !state.currentProgress) {
@@ -357,7 +507,6 @@ export function AppProvider({ children }) {
 
       const results = await Promise.allSettled(promises);
       
-      // Log dos resultados
       results.forEach((result, index) => {
         if (result.status === 'rejected') {
           console.error(`❌ Promise ${index} rejeitada:`, result.reason);
@@ -389,7 +538,6 @@ export function AppProvider({ children }) {
     loadNextSteps
   ]);
 
-  // Verificar novas conquistas
   const checkNewAchievements = useCallback(async () => {
     if (!isAuthenticated || !user) return [];
 
@@ -397,10 +545,8 @@ export function AppProvider({ children }) {
       const result = await achievementsAPI.checkNewAchievements();
       
       if (result.new_badges && result.new_badges.length > 0) {
-        // Atualizar dados do usuário se houver novas badges
         await loadAchievements(true);
         
-        // Atualizar XP do usuário
         if (result.xp_earned) {
           updateUser({
             profile_xp: (user.profile_xp || 0) + result.xp_earned,
@@ -417,15 +563,12 @@ export function AppProvider({ children }) {
     }
   }, [isAuthenticated, user, loadAchievements, updateUser]);
 
-  // Função para completar uma lição
   const completeLesson = useCallback(async (lessonData) => {
     try {
       const result = await progressAPI.completeLesson(lessonData);
       
-      // Atualizar cache local
       await loadProgress(true);
       
-      // Verificar novas conquistas
       const newBadges = await checkNewAchievements();
       
       return {
@@ -438,12 +581,10 @@ export function AppProvider({ children }) {
     }
   }, [loadProgress, checkNewAchievements]);
 
-  // Função para avançar progresso
   const advanceProgress = useCallback(async (stepType) => {
     try {
       const result = await progressAPI.advanceProgress(stepType);
       
-      // Atualizar cache local
       await loadProgress(true);
       
       return result;
@@ -467,7 +608,7 @@ export function AppProvider({ children }) {
     dispatch({ type: APP_ACTIONS.SET_THEME, payload: theme });
   }, []);
 
-  // ✅ CORREÇÃO: Limpar cache quando o usuário faz logout
+  // Limpar cache quando o usuário faz logout
   useEffect(() => {
     if (!isAuthenticated) {
       dispatch({ type: APP_ACTIONS.CLEAR_CACHE });
@@ -476,7 +617,12 @@ export function AppProvider({ children }) {
     }
   }, [isAuthenticated]);
 
-  // ✅ CORREÇÃO: Inicializar dados APENAS uma vez quando autenticado
+  // Log de mudanças no currentProgress
+  useEffect(() => {
+    console.log('🔍 AppContext - currentProgress mudou:', state.currentProgress);
+  }, [state.currentProgress]);
+
+  // Inicializar dados quando autenticado
   useEffect(() => {
     if (isAuthenticated && user && !state.isInitialized && !initializationRef.current) {
       console.log('🎯 Condições atendidas para inicialização');
@@ -484,23 +630,12 @@ export function AppProvider({ children }) {
     }
   }, [isAuthenticated, user, state.isInitialized, initializeAppData]);
 
-  // ✅ CORREÇÃO: Carregar tema salvo apenas uma vez
+  // Carregar tema salvo
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme') || 'light';
     if (state.theme !== savedTheme) {
       dispatch({ type: APP_ACTIONS.SET_THEME, payload: savedTheme });
     }
-  }, []); // Array vazio - executa apenas uma vez
-
-  // ✅ DEBUG: Monitorar operações ativas
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (activeOperationsRef.current.size > 0) {
-        console.log('🔄 Operações ativas:', Array.from(activeOperationsRef.current));
-      }
-    }, 10000);
-    
-    return () => clearInterval(interval);
   }, []);
 
   // Valor do contexto
@@ -518,6 +653,9 @@ export function AppProvider({ children }) {
     // Actions
     completeLesson,
     advanceProgress,
+    navigateAndUpdateProgress,
+    forceUpdateProgress,
+    setNavigating,
     
     // UI Actions
     toggleSidebar,

@@ -288,7 +288,7 @@ const WelcomePage = () => {
                       className="w-full px-4 py-3 rounded-lg border-2 border-amber-200 focus:border-amber-500 focus:outline-none transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                     <p className="text-amber-600 text-xs mt-1">
-                      Use: test@test.com / test123
+                      nome@email.com
                     </p>
                   </div>
 

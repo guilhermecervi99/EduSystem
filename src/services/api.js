@@ -196,23 +196,22 @@ export const mappingAPI = {
 // Progresso
 export const progressAPI = {
   async getCurrentProgress() {
+    console.log('📊 Executando getCurrentProgress...');
     const response = await api.get('/progress/current');
     return response.data;
   },
 
   async getCurrentContent() {
+    console.log('📚 Executando getCurrentContent...');
     const response = await api.get('/progress/current-content');
     return response.data;
   },
 
   async completeLesson(lessonData) {
-    // Log para debug
     console.log('📤 Enviando para API:', lessonData);
-    
     const response = await api.post('/progress/lesson/complete', lessonData);
     return response.data;
   },
-
 
   async completeModule(moduleData) {
     const response = await api.post('/progress/module/complete', moduleData);
@@ -249,50 +248,17 @@ export const progressAPI = {
     return response.data;
   },
 
-    // ✅ NOVA FUNÇÃO: Verificar se usuário tem progresso em área/subárea
-  async hasProgressInAreaSubarea(area, subarea) {
-    try {
-      const progress = await this.getProgressForAreaSubarea(area, subarea);
-      return !!(progress && (
-        progress.module_index > 0 || 
-        progress.lesson_index > 0 || 
-        progress.step_index > 0 ||
-        progress.completed_lessons > 0
-      ));
-    } catch (error) {
-      return false;
-    }
-  },
-
-    // ✅ NOVA FUNÇÃO: Inicializar progresso para nova área/subárea
-  async initializeProgress(area, subarea, level = 'iniciante') {
-    try {
-      const response = await api.post('/progress/initialize', {
-        area,
-        subarea,
-        level,
-        module_index: 0,
-        lesson_index: 0,
-        step_index: 0
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Erro ao inicializar progresso:', error);
-      throw error;
-    }
-  },
-  // ✅ CORREÇÃO ADICIONAL: Melhorar navigateTo com mais validações
   async navigateTo(navigationData) {
     try {
-      // ✅ Validar dados obrigatórios ANTES de enviar
       const requiredFields = ['area', 'subarea', 'level', 'module_index'];
-      const missingFields = requiredFields.filter(field => !navigationData[field] && navigationData[field] !== 0);
+      const missingFields = requiredFields.filter(field => 
+        navigationData[field] === undefined || navigationData[field] === null
+      );
       
       if (missingFields.length > 0) {
         throw new Error(`Campos obrigatórios faltando: ${missingFields.join(', ')}`);
       }
       
-      // Garantir que todos os campos têm valores válidos
       const validatedData = {
         area: navigationData.area,
         subarea: navigationData.subarea,
@@ -303,22 +269,19 @@ export const progressAPI = {
       };
       
       console.log('📤 Enviando navegação para API:', validatedData);
-      
-      // Enviar como query parameters (como o backend espera)
-      const response = await api.post('/progress/navigate-to', null, {
-        params: validatedData
-      });
-      
+      const response = await api.post('/progress/navigate-to', validatedData);
       console.log('✅ Navegação realizada com sucesso:', response.data);
       return response.data;
     } catch (error) {
       console.error('❌ Navigation error:', error);
       
-      // Se for erro 404 ou similar, tentar criar progresso inicial
       if (error.response?.status === 404) {
         console.log('🔄 Tentando criar progresso inicial...');
         try {
-          const createResponse = await api.post('/progress/initialize', validatedData);
+          const createResponse = await api.post('/progress/initialize', {
+            ...validatedData,
+            set_as_current: true
+          });
           console.log('✅ Progresso inicial criado:', createResponse.data);
           return createResponse.data;
         } catch (createError) {
@@ -331,24 +294,79 @@ export const progressAPI = {
     }
   },
 
+  async navigatePrevious() {
+    try {
+      const response = await api.post('/progress/navigate/previous');
+      console.log('✅ Navegação anterior realizada:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Erro ao navegar para anterior:', error);
+      throw error;
+    }
+  },
 
-  
+  async getProgressForAreaSubarea(area, subarea) {
+    try {
+      const response = await api.get('/progress/area-subarea', {
+        params: { area, subarea }
+      });
+      return response.data;
+    } catch (error) {
+      if (error.response?.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  },
+
+  async hasProgressInAreaSubarea(area, subarea) {
+    try {
+      const progress = await this.getProgressForAreaSubarea(area, subarea);
+      return !!(progress && progress.has_progress && (
+        progress.module_index > 0 || 
+        progress.lesson_index > 0 || 
+        progress.step_index > 0 ||
+        progress.completed_lessons > 0
+      ));
+    } catch (error) {
+      return false;
+    }
+  },
+
+  async initializeProgress(area, subarea, level = 'iniciante', setAsCurrent = false) {
+    try {
+      const response = await api.post('/progress/initialize', {
+        area,
+        subarea,
+        level,
+        module_index: 0,
+        lesson_index: 0,
+        step_index: 0,
+        set_as_current: setAsCurrent
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao inicializar progresso:', error);
+      throw error;
+    }
+  },
+
   async completeAndAdvance(lessonData) {
     try {
-      // Garantir que lesson_title existe
       if (!lessonData.lesson_title) {
         throw new Error('lesson_title é obrigatório');
       }
 
-      // Primeiro completa a lição
-      const completeResponse = await api.post('/progress/lesson/complete', lessonData);
+      const dataWithAdvance = {
+        ...lessonData,
+        advance_progress: true
+      };
 
-      // Como advance_progress já é true, o backend já avançou
-      // Não precisa chamar /progress/advance novamente
-      
-      return completeResponse.data;
+      const response = await api.post('/progress/lesson/complete', dataWithAdvance);
+      console.log('✅ Lição completada e progresso avançado:', response.data);
+      return response.data;
     } catch (error) {
-      console.error('Complete and advance error:', error);
+      console.error('❌ Complete and advance error:', error);
       throw error;
     }
   },
@@ -358,7 +376,6 @@ export const progressAPI = {
       const response = await api.get('/progress/today');
       return response.data;
     } catch (error) {
-      // Se não existir endpoint, retornar dados padrão
       return {
         lessons_completed: 0,
         modules_completed: 0,
@@ -372,7 +389,6 @@ export const progressAPI = {
       const response = await api.get('/progress/weekly');
       return response.data;
     } catch (error) {
-      // Se não existir endpoint, retornar dados padrão
       return {
         target: 5,
         completed: 0
@@ -391,12 +407,10 @@ export const progressAPI = {
   },
 
   async registerSpecializationCompletion(specName, area, subarea) {
-    const response = await api.post('/progress/register-specialization-completion', null, {
-      params: {
-        spec_name: specName,
-        area_name: area,
-        subarea_name: subarea
-      }
+    const response = await api.post('/progress/specialization/complete', {
+      spec_name: specName,
+      area_name: area,
+      subarea_name: subarea
     });
     return response.data;
   },
@@ -534,28 +548,39 @@ export const llmAPI = {
     return response.data;
   },
 
-    // ✅ NOVA FUNÇÃO: Verificar progresso para área/subárea específica
-  async getProgressForAreaSubarea(area, subarea) {
+  async enrichContent(contextData) {
     try {
-      const response = await api.get('/progress/area-subarea', {
-        params: { area, subarea }
-      });
-      return response.data;
-    } catch (error) {
-      // Se retornar 404, significa que não há progresso para esta combinação
-      if (error.response?.status === 404) {
-        return null;
+      console.log('🚀 [enrichContent] Chamando API com:', contextData);
+      
+      const response = await api.post('/llm/enrich-content', contextData);
+      
+      console.log('📥 [enrichContent] Resposta raw:', response.data);
+      
+      // Garantir que sempre retornamos a estrutura esperada
+      // O backend retorna { enriched_content, type, context_used, xp_earned }
+      if (response.data && response.data.enriched_content) {
+        console.log('✅ [enrichContent] Conteúdo enriquecido encontrado');
+        return response.data;
       }
+      
+      // Se por algum motivo não tiver enriched_content, criar estrutura
+      console.warn('⚠️ [enrichContent] Resposta sem enriched_content, criando estrutura');
+      return {
+        enriched_content: response.data || 'Erro: conteúdo não recebido',
+        type: contextData.enrichment_type || contextData.type || 'unknown',
+        xp_earned: 0
+      };
+      
+    } catch (error) {
+      console.error('❌ [enrichContent] Erro na requisição:', error);
+      
+      // Se for erro 422, pode ser problema de validação
+      if (error.response?.status === 422) {
+        console.error('🚫 Erro de validação:', error.response.data);
+      }
+      
       throw error;
     }
-  },
-
-  async enrichContent(content, enrichmentType = 'exemplos') {
-    const response = await api.post('/llm/enrich-content', {
-      content,
-      enrichment_type: enrichmentType,
-    });
-    return response.data;
   },
 
   async getTeachingStyles() {
@@ -813,56 +838,6 @@ setInterval(() => {
 }, 5000);
 
 console.log('✅ API module loaded successfully');
-
-// ✅ CORREÇÃO CRÍTICA: Throttling para getCurrentContent
-const throttledRequests = new Map();
-
-const throttle = (fn, delay = 1000) => {
-  return async (...args) => {
-    const key = fn.name + JSON.stringify(args);
-    
-    if (throttledRequests.has(key)) {
-      const lastCall = throttledRequests.get(key);
-      const timeSinceLastCall = Date.now() - lastCall.timestamp;
-      
-      if (timeSinceLastCall < delay) {
-        console.log(`🚫 Throttled ${fn.name} - muito cedo (${timeSinceLastCall}ms < ${delay}ms)`);
-        return lastCall.promise;
-      }
-    }
-    
-    const promise = fn.apply(this, args);
-    throttledRequests.set(key, {
-      timestamp: Date.now(),
-      promise
-    });
-    
-    // Limpar cache após delay
-    setTimeout(() => {
-      throttledRequests.delete(key);
-    }, delay);
-    
-    return promise;
-  };
-};
-
-// ✅ WRAPPER THROTTLED para getCurrentContent
-const originalGetCurrentContent = progressAPI.getCurrentContent;
-progressAPI.getCurrentContent = throttle(async () => {
-  console.log('📚 Executando getCurrentContent...');
-  const response = await api.get('/progress/current-content');
-  return response.data;
-}, 2000); // Mínimo 2 segundos entre chamadas
-
-// ✅ WRAPPER THROTTLED para getCurrentProgress  
-const originalGetCurrentProgress = progressAPI.getCurrentProgress;
-progressAPI.getCurrentProgress = throttle(async () => {
-  console.log('📊 Executando getCurrentProgress...');
-  const response = await api.get('/progress/current');
-  return response.data;
-}, 3000); // Mínimo 3 segundos entre chamadas
-
-console.log('⚡ Throttling aplicado às APIs críticas');
 
 // Exportação da instância do axios para casos especiais
 export default api;
