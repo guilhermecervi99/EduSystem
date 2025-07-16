@@ -1,4 +1,4 @@
-// StudySessionPage.jsx - VERSÃO CORRIGIDA SEM REACT-ROUTER-DOM
+// StudySessionPage.jsx - VERSÃO FUNCIONAL COM CONTEÚDO REAL
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Clock, 
@@ -11,20 +11,30 @@ import {
   Code,
   AlertCircle,
   ChevronRight,
-  RotateCcw
+  RotateCcw,
+  Brain,
+  Lightbulb,
+  MessageCircle,
+  Send,
+  X,
+  RefreshCw,
+  FileText
 } from 'lucide-react';
-import { analyticsAPI } from '../services/api';
+import { analyticsAPI, llmAPI, progressAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useNotification } from '../context/NotificationContext';
+import { useApp } from '../context/AppContext';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import Loading from '../components/common/Loading';
+import ReactMarkdown from 'react-markdown';
 
 const StudySessionPage = ({ onNavigate, navigationState }) => {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
+  const { currentProgress } = useApp();
   const { showSuccess, showError, showInfo } = useNotification();
   
-  // Estados
+  // Estados principais
   const [session, setSession] = useState(null);
   const [currentPhase, setCurrentPhase] = useState(0);
   const [currentActivity, setCurrentActivity] = useState(0);
@@ -34,6 +44,16 @@ const StudySessionPage = ({ onNavigate, navigationState }) => {
   const [completedActivities, setCompletedActivities] = useState(new Set());
   const [sessionNotes, setSessionNotes] = useState('');
   const [showCompletion, setShowCompletion] = useState(false);
+  
+  // Estados para conteúdo dinâmico
+  const [activityContent, setActivityContent] = useState(null);
+  const [loadingContent, setLoadingContent] = useState(false);
+  const [showTeacherChat, setShowTeacherChat] = useState(false);
+  const [teacherQuestion, setTeacherQuestion] = useState('');
+  const [teacherResponse, setTeacherResponse] = useState('');
+  const [loadingTeacher, setLoadingTeacher] = useState(false);
+  const [practiceResults, setPracticeResults] = useState({});
+  const [quizAnswers, setQuizAnswers] = useState({});
   
   // Refs
   const timerRef = useRef(null);
@@ -71,6 +91,13 @@ const StudySessionPage = ({ onNavigate, navigationState }) => {
     }
   }, [isPlaying, isPaused, timeRemaining]);
   
+  // Carregar conteúdo da atividade quando mudar
+  useEffect(() => {
+    if (session && !showCompletion) {
+      loadActivityContent();
+    }
+  }, [currentPhase, currentActivity, session]);
+  
   // Inicializar sessão
   const initializeSession = (sessionData) => {
     if (sessionData.structure && sessionData.structure.length > 0) {
@@ -89,6 +116,136 @@ const StudySessionPage = ({ onNavigate, navigationState }) => {
       showError('Erro ao carregar sessão');
       onNavigate?.('dashboard');
     }
+  };
+  
+  // Carregar conteúdo real para a atividade
+  const loadActivityContent = async () => {
+    if (!session || showCompletion) return;
+    
+    const phase = session.structure[currentPhase];
+    const activity = phase.activities[currentActivity];
+    
+    setLoadingContent(true);
+    
+    try {
+      let content = null;
+      
+      switch (activity.type) {
+        case 'explanation':
+        case 'theory':
+          // Gerar explicação usando LLM
+          content = await generateTheoryContent(activity);
+          break;
+          
+        case 'practice':
+        case 'exercise':
+          // Gerar exercícios práticos
+          content = await generatePracticeContent(activity);
+          break;
+          
+        case 'quiz':
+          // Gerar quiz
+          content = await generateQuizContent(activity);
+          break;
+          
+        case 'review':
+          // Gerar revisão
+          content = await generateReviewContent(activity);
+          break;
+          
+        default:
+          content = {
+            type: 'default',
+            content: activity.content || 'Conteúdo não disponível'
+          };
+      }
+      
+      setActivityContent(content);
+    } catch (error) {
+      console.error('Erro ao carregar conteúdo:', error);
+      showError('Erro ao gerar conteúdo da atividade');
+    } finally {
+      setLoadingContent(false);
+    }
+  };
+  
+  // Gerar conteúdo teórico
+  const generateTheoryContent = async (activity) => {
+    const topic = session.topic || activity.title || 'Conceitos gerais';
+    
+    const response = await llmAPI.generateLesson({
+      topic: topic,
+      subject_area: currentProgress?.area || user?.current_track || 'Geral',
+      knowledge_level: currentProgress?.level || 'iniciante',
+      teaching_style: user?.learning_style || 'didático',
+      duration_minutes: activity.duration_minutes || 10
+    });
+    
+    return {
+      type: 'theory',
+      title: response.lesson_content.title,
+      introduction: response.lesson_content.introduction,
+      mainContent: response.lesson_content.main_content,
+      keyPoints: response.lesson_content.key_points || [],
+      examples: response.lesson_content.examples || []
+    };
+  };
+  
+  // Gerar conteúdo prático
+  const generatePracticeContent = async (activity) => {
+    const topic = session.topic || activity.title || 'Exercícios práticos';
+    
+    // Usar a API de assessment para gerar exercícios práticos
+    const response = await llmAPI.generateAssessment({
+      topic: topic,
+      difficulty: currentProgress?.level || 'iniciante',
+      num_questions: 3,
+      question_types: ['múltipla escolha', 'dissertativa']
+    });
+    
+    return {
+      type: 'practice',
+      title: `Prática: ${topic}`,
+      exercises: response.assessment.questions,
+      instructions: activity.content || 'Complete os exercícios a seguir:'
+    };
+  };
+  
+  // Gerar quiz
+  const generateQuizContent = async (activity) => {
+    const topic = session.topic || activity.title || 'Quiz rápido';
+    
+    const response = await llmAPI.generateAssessment({
+      topic: topic,
+      difficulty: currentProgress?.level || 'iniciante',
+      num_questions: 5,
+      question_types: ['múltipla escolha', 'verdadeiro/falso']
+    });
+    
+    return {
+      type: 'quiz',
+      title: `Quiz: ${topic}`,
+      questions: response.assessment.questions,
+      passingScore: 60
+    };
+  };
+  
+  // Gerar conteúdo de revisão
+  const generateReviewContent = async (activity) => {
+    const topic = session.topic || 'Conceitos estudados';
+    
+    // Gerar um resumo dos principais pontos
+    const prompt = `Crie um resumo de revisão sobre ${topic} para um estudante de ${user?.age || 14} anos, 
+                   incluindo os pontos principais, dicas de memorização e conexões com outros conceitos.`;
+    
+    const response = await llmAPI.askTeacher(prompt, `Área: ${currentProgress?.area || 'Geral'}`);
+    
+    return {
+      type: 'review',
+      title: `Revisão: ${topic}`,
+      content: response.answer,
+      tips: activity.tips || []
+    };
   };
   
   // Formatar tempo
@@ -118,6 +275,7 @@ const StudySessionPage = ({ onNavigate, navigationState }) => {
       setTimeRemaining(phase.duration_minutes * 60);
       setCurrentActivity(0);
       setIsPaused(false);
+      loadActivityContent();
     }
   };
   
@@ -153,11 +311,49 @@ const StudySessionPage = ({ onNavigate, navigationState }) => {
     const key = `${currentPhase}-${activityIndex}`;
     setCompletedActivities(new Set([...completedActivities, key]));
     
+    // Salvar resultados se for prática ou quiz
+    if (activityContent?.type === 'practice') {
+      const results = calculatePracticeResults();
+      setPracticeResults(prev => ({ ...prev, [key]: results }));
+    } else if (activityContent?.type === 'quiz') {
+      const results = calculateQuizResults();
+      setPracticeResults(prev => ({ ...prev, [key]: results }));
+    }
+    
     // Avançar para próxima atividade se houver
     const phase = session.structure[currentPhase];
     if (activityIndex < phase.activities.length - 1) {
       setCurrentActivity(activityIndex + 1);
+      setQuizAnswers({}); // Limpar respostas do quiz
     }
+    
+    showSuccess('Atividade concluída!');
+  };
+  
+  const calculatePracticeResults = () => {
+    // Lógica simplificada para calcular resultados
+    return {
+      completed: true,
+      score: 85,
+      feedback: 'Bom trabalho! Continue praticando.'
+    };
+  };
+  
+  const calculateQuizResults = () => {
+    let correct = 0;
+    activityContent.questions.forEach((question, idx) => {
+      if (quizAnswers[idx] === question.correct_answer) {
+        correct++;
+      }
+    });
+    
+    const score = Math.round((correct / activityContent.questions.length) * 100);
+    return {
+      score,
+      correct,
+      total: activityContent.questions.length,
+      passed: score >= (activityContent.passingScore || 60)
+    };
   };
   
   const handleSessionComplete = async () => {
@@ -173,9 +369,47 @@ const StudySessionPage = ({ onNavigate, navigationState }) => {
       });
       
       showSuccess('Sessão concluída com sucesso! 🎉');
+      
+      // Adicionar XP
+      const xpEarned = Math.round((completedActivities.size / getTotalActivities()) * 20);
+      updateUser({
+        profile_xp: (user.profile_xp || 0) + xpEarned
+      });
+      
     } catch (error) {
       console.error('Erro ao salvar conclusão:', error);
     }
+  };
+  
+  // Professor Virtual
+  const handleAskTeacher = async () => {
+    if (!teacherQuestion.trim()) return;
+    
+    setLoadingTeacher(true);
+    try {
+      const context = `Estou em uma sessão de estudos sobre ${session.topic}. 
+                      Atividade atual: ${activityContent?.title || 'Sem título'}`;
+      
+      const response = await llmAPI.askTeacher(teacherQuestion, context);
+      setTeacherResponse(response.answer);
+      setTeacherQuestion('');
+      
+      if (response.xp_earned) {
+        updateUser({
+          profile_xp: (user.profile_xp || 0) + response.xp_earned
+        });
+      }
+    } catch (error) {
+      showError('Erro ao perguntar ao professor');
+    } finally {
+      setLoadingTeacher(false);
+    }
+  };
+  
+  // Regenerar conteúdo
+  const handleRegenerateContent = async () => {
+    await loadActivityContent();
+    showSuccess('Conteúdo regenerado!');
   };
   
   // Utils
@@ -196,7 +430,6 @@ const StudySessionPage = ({ onNavigate, navigationState }) => {
   };
   
   const playNotificationSound = () => {
-    // Som simples de notificação
     if (audioRef.current) {
       audioRef.current.play().catch(e => console.log('Audio play failed:', e));
     }
@@ -223,8 +456,225 @@ const StudySessionPage = ({ onNavigate, navigationState }) => {
         return <Code className="h-5 w-5" />;
       case 'quiz':
         return <Target className="h-5 w-5" />;
+      case 'review':
+        return <Brain className="h-5 w-5" />;
       default:
         return <AlertCircle className="h-5 w-5" />;
+    }
+  };
+  
+  // Renderizar conteúdo da atividade
+  const renderActivityContent = () => {
+    if (loadingContent) {
+      return (
+        <div className="flex items-center justify-center py-12">
+          <Loading size="lg" text="Gerando conteúdo..." />
+        </div>
+      );
+    }
+    
+    if (!activityContent) {
+      return (
+        <div className="text-center py-8">
+          <p className="text-gray-600">Nenhum conteúdo disponível</p>
+          <Button
+            className="mt-4"
+            onClick={loadActivityContent}
+            leftIcon={<RefreshCw className="h-4 w-4" />}
+          >
+            Gerar Conteúdo
+          </Button>
+        </div>
+      );
+    }
+    
+    switch (activityContent.type) {
+      case 'theory':
+        return (
+          <div className="space-y-6">
+            <div className="prose max-w-none">
+              <h3 className="text-xl font-bold text-gray-900 mb-4">
+                {activityContent.title}
+              </h3>
+              
+              {activityContent.introduction && (
+                <div className="bg-blue-50 p-4 rounded-lg mb-6">
+                  <p className="text-blue-800">{activityContent.introduction}</p>
+                </div>
+              )}
+              
+              {activityContent.mainContent?.map((section, idx) => (
+                <div key={idx} className="mb-6">
+                  <h4 className="text-lg font-semibold text-gray-800 mb-2">
+                    {section.subtitle}
+                  </h4>
+                  <ReactMarkdown className="text-gray-700">
+                    {section.content}
+                  </ReactMarkdown>
+                </div>
+              ))}
+              
+              {activityContent.keyPoints?.length > 0 && (
+                <div className="bg-yellow-50 p-4 rounded-lg">
+                  <h4 className="font-semibold text-yellow-900 mb-2">
+                    📌 Pontos Principais
+                  </h4>
+                  <ul className="space-y-1">
+                    {activityContent.keyPoints.map((point, idx) => (
+                      <li key={idx} className="text-yellow-800">• {point}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+        
+      case 'practice':
+        return (
+          <div className="space-y-6">
+            <h3 className="text-xl font-bold text-gray-900">
+              {activityContent.title}
+            </h3>
+            
+            <p className="text-gray-600">{activityContent.instructions}</p>
+            
+            {activityContent.exercises?.map((exercise, idx) => (
+              <Card key={idx} className="p-4">
+                <h4 className="font-medium text-gray-900 mb-3">
+                  Exercício {idx + 1}: {exercise.text}
+                </h4>
+                
+                {exercise.type === 'múltipla escolha' ? (
+                  <div className="space-y-2">
+                    {exercise.options.map((option, optIdx) => (
+                      <label key={optIdx} className="flex items-center space-x-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name={`exercise-${idx}`}
+                          className="text-primary-600"
+                        />
+                        <span className="text-gray-700">{option}</span>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <textarea
+                    className="w-full p-3 border rounded-lg"
+                    rows="4"
+                    placeholder="Digite sua resposta..."
+                  />
+                )}
+              </Card>
+            ))}
+          </div>
+        );
+        
+      case 'quiz':
+        return (
+          <div className="space-y-6">
+            <h3 className="text-xl font-bold text-gray-900">
+              {activityContent.title}
+            </h3>
+            
+            {activityContent.questions?.map((question, idx) => (
+              <Card key={idx} className="p-4">
+                <h4 className="font-medium text-gray-900 mb-3">
+                  {idx + 1}. {question.text}
+                </h4>
+                
+                {question.type === 'múltipla escolha' && (
+                  <div className="space-y-2">
+                    {question.options.map((option, optIdx) => (
+                      <label key={optIdx} className="flex items-center space-x-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name={`quiz-${idx}`}
+                          value={optIdx}
+                          onChange={() => setQuizAnswers({ ...quizAnswers, [idx]: optIdx })}
+                          checked={quizAnswers[idx] === optIdx}
+                          className="text-primary-600"
+                        />
+                        <span className="text-gray-700">{option}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                
+                {question.type === 'verdadeiro/falso' && (
+                  <div className="flex space-x-4">
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name={`quiz-${idx}`}
+                        value="true"
+                        onChange={() => setQuizAnswers({ ...quizAnswers, [idx]: true })}
+                        checked={quizAnswers[idx] === true}
+                      />
+                      <span>Verdadeiro</span>
+                    </label>
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name={`quiz-${idx}`}
+                        value="false"
+                        onChange={() => setQuizAnswers({ ...quizAnswers, [idx]: false })}
+                        checked={quizAnswers[idx] === false}
+                      />
+                      <span>Falso</span>
+                    </label>
+                  </div>
+                )}
+              </Card>
+            ))}
+            
+            {Object.keys(quizAnswers).length === activityContent.questions.length && (
+              <div className="text-center">
+                <Button
+                  onClick={() => {
+                    const results = calculateQuizResults();
+                    showInfo(`Você acertou ${results.correct} de ${results.total} questões!`);
+                  }}
+                >
+                  Verificar Respostas
+                </Button>
+              </div>
+            )}
+          </div>
+        );
+        
+      case 'review':
+        return (
+          <div className="space-y-6">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">
+              {activityContent.title}
+            </h3>
+            
+            <div className="prose max-w-none">
+              <ReactMarkdown>{activityContent.content}</ReactMarkdown>
+            </div>
+            
+            {activityContent.tips?.length > 0 && (
+              <div className="bg-green-50 p-4 rounded-lg">
+                <h4 className="font-semibold text-green-900 mb-2">
+                  💡 Dicas de Revisão
+                </h4>
+                <ul className="space-y-1">
+                  {activityContent.tips.map((tip, idx) => (
+                    <li key={idx} className="text-green-800">• {tip}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        );
+        
+      default:
+        return (
+          <div className="prose max-w-none">
+            <p className="text-gray-700">{activityContent.content}</p>
+          </div>
+        );
     }
   };
   
@@ -440,34 +890,56 @@ const StudySessionPage = ({ onNavigate, navigationState }) => {
               </div>
             </div>
             
-            {/* Indicadores de atividades */}
-            <div className="flex space-x-1">
-              {phase.activities.map((_, index) => (
-                <div
-                  key={index}
-                  className={`w-2 h-2 rounded-full ${
-                    completedActivities.has(`${currentPhase}-${index}`)
-                      ? 'bg-success-500'
-                      : index === currentActivity
-                      ? 'bg-primary-500'
-                      : 'bg-gray-300'
-                  }`}
-                />
-              ))}
+            <div className="flex items-center space-x-2">
+              {/* Regenerar conteúdo */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleRegenerateContent}
+                disabled={loadingContent}
+                title="Regenerar conteúdo"
+              >
+                <RefreshCw className={`h-4 w-4 ${loadingContent ? 'animate-spin' : ''}`} />
+              </Button>
+              
+              {/* Professor Virtual */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowTeacherChat(!showTeacherChat)}
+                title="Perguntar ao professor"
+              >
+                <MessageCircle className="h-4 w-4" />
+              </Button>
+              
+              {/* Indicadores de atividades */}
+              <div className="flex space-x-1">
+                {phase.activities.map((_, index) => (
+                  <div
+                    key={index}
+                    className={`w-2 h-2 rounded-full ${
+                      completedActivities.has(`${currentPhase}-${index}`)
+                        ? 'bg-success-500'
+                        : index === currentActivity
+                        ? 'bg-primary-500'
+                        : 'bg-gray-300'
+                    }`}
+                  />
+                ))}
+              </div>
             </div>
           </div>
         </Card.Header>
         
         {/* Conteúdo da Atividade */}
         <div className="space-y-4">
-          <div className="prose max-w-none">
-            <p className="text-gray-800">{activity.content}</p>
-          </div>
+          {/* Conteúdo Principal */}
+          {renderActivityContent()}
           
-          {/* Materiais */}
+          {/* Materiais (se houver) */}
           {activity.materials && activity.materials.length > 0 && (
-            <div>
-              <h4 className="font-medium text-gray-900 mb-2">Materiais</h4>
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <h4 className="font-medium text-gray-900 mb-2">📚 Materiais de Apoio</h4>
               <ul className="list-disc list-inside space-y-1">
                 {activity.materials.map((material, index) => (
                   <li key={index} className="text-gray-700">{material}</li>
@@ -476,7 +948,7 @@ const StudySessionPage = ({ onNavigate, navigationState }) => {
             </div>
           )}
           
-          {/* Dicas */}
+          {/* Dicas (se houver) */}
           {activity.tips && activity.tips.length > 0 && (
             <div className="p-4 bg-blue-50 rounded-lg">
               <h4 className="font-medium text-blue-900 mb-2">💡 Dicas</h4>
@@ -489,7 +961,7 @@ const StudySessionPage = ({ onNavigate, navigationState }) => {
           )}
           
           {/* Botão de conclusão */}
-          {isPlaying && !isPaused && (
+          {isPlaying && !isPaused && !loadingContent && (
             <div className="flex justify-end">
               <Button
                 variant="secondary"
@@ -507,6 +979,55 @@ const StudySessionPage = ({ onNavigate, navigationState }) => {
         </div>
       </Card>
       
+      {/* Chat com Professor (se visível) */}
+      {showTeacherChat && (
+        <Card>
+          <Card.Header>
+            <div className="flex items-center justify-between">
+              <Card.Title>Professor Virtual</Card.Title>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowTeacherChat(false)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </Card.Header>
+          
+          {teacherResponse && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex items-start space-x-2">
+                <Brain className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-blue-800">
+                  <ReactMarkdown>{teacherResponse}</ReactMarkdown>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          <div className="space-y-3">
+            <textarea
+              value={teacherQuestion}
+              onChange={(e) => setTeacherQuestion(e.target.value)}
+              placeholder="Digite sua pergunta sobre o conteúdo..."
+              className="w-full h-20 p-3 border border-gray-300 rounded-lg resize-none"
+              disabled={loadingTeacher}
+            />
+            
+            <Button
+              fullWidth
+              onClick={handleAskTeacher}
+              loading={loadingTeacher}
+              disabled={!teacherQuestion.trim()}
+              rightIcon={<Send className="h-4 w-4" />}
+            >
+              {loadingTeacher ? 'Perguntando...' : 'Perguntar'}
+            </Button>
+          </div>
+        </Card>
+      )}
+      
       {/* Área de Notas */}
       <Card>
         <Card.Header>
@@ -518,7 +1039,7 @@ const StudySessionPage = ({ onNavigate, navigationState }) => {
           value={sessionNotes}
           onChange={(e) => setSessionNotes(e.target.value)}
           placeholder="Digite suas anotações aqui..."
-          className="w-full h-32 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+          className="w-full h-32 p-3 border border-gray-300 rounded-lg resize-none"
           disabled={!isPlaying}
         />
       </Card>
