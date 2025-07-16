@@ -223,8 +223,8 @@ export const progressAPI = {
     return response.data;
   },
 
-  async getStatistics() {
-    const response = await api.get('/progress/statistics');
+  async getStatistics(userId) {
+    const response = await api.get(`/users/${userId}/statistics`);
     return response.data;
   },
 
@@ -836,6 +836,72 @@ setInterval(() => {
     console.log('Requests ativas:', Array.from(activeRequests.values()));
   }
 }, 5000);
+
+export const analyticsAPI = {
+  async getDashboardMetrics(period = 'week') {
+    console.log('📊 analyticsAPI.getDashboardMetrics called');
+    const response = await api.get('/analytics/dashboard/metrics', {
+      params: { period }
+    });
+    return response.data;
+  },
+
+  async generateAssessment(assessmentData) {
+    console.log('🧪 analyticsAPI.generateAssessment called');
+    const response = await api.post('/analytics/generate-assessment', assessmentData);
+    return response.data;
+  },
+
+  async generateStudySession(sessionData) {
+    console.log('📚 analyticsAPI.generateStudySession called');
+    const response = await api.post('/analytics/generate-study-session', sessionData);
+    return response.data;
+  },
+
+  async generateLearningPath(pathData) {
+    console.log('🗺️ analyticsAPI.generateLearningPath called');
+    const response = await api.post('/analytics/generate-learning-path', pathData);
+    return response.data;
+  },
+
+  async getAssessmentDetails(assessmentId) {
+    console.log('📋 analyticsAPI.getAssessmentDetails called');
+    const response = await api.get(`/analytics/assessments/${assessmentId}`);
+    return response.data;
+  },
+
+  async submitAssessmentResponse(assessmentId, responses) {
+    console.log('✅ analyticsAPI.submitAssessmentResponse called');
+    const response = await api.post(`/analytics/assessments/${assessmentId}/submit`, {
+      responses
+    });
+    return response.data;
+  },
+
+  async getStudySessionDetails(sessionId) {
+    console.log('📖 analyticsAPI.getStudySessionDetails called');
+    const response = await api.get(`/analytics/study-sessions/${sessionId}`);
+    return response.data;
+  },
+
+  async completeStudySession(sessionId, completionData) {
+    console.log('✔️ analyticsAPI.completeStudySession called');
+    const response = await api.post(`/analytics/study-sessions/${sessionId}/complete`, completionData);
+    return response.data;
+  },
+
+  async getLearningPathDetails(pathId) {
+    console.log('🛤️ analyticsAPI.getLearningPathDetails called');
+    const response = await api.get(`/analytics/learning-paths/${pathId}`);
+    return response.data;
+  },
+
+  async updateLearningPathProgress(pathId, progressData) {
+    console.log('📈 analyticsAPI.updateLearningPathProgress called');
+    const response = await api.put(`/analytics/learning-paths/${pathId}/progress`, progressData);
+    return response.data;
+  }
+};
 
 console.log('✅ API module loaded successfully');
 

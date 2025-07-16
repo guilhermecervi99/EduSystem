@@ -427,7 +427,7 @@ export function AppProvider({ children }) {
 
     try {
       console.log('📈 Carregando estatísticas...');
-      const statistics = await progressAPI.getStatistics();
+      const statistics = await progressAPI.getStatistics(user.id); 
       dispatch({ type: APP_ACTIONS.SET_STATISTICS, payload: statistics });
       console.log('✅ Estatísticas carregadas:', statistics);
       return statistics;

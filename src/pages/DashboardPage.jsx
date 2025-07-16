@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
-import api, { progressAPI, llmAPI, contentAPI } from '../services/api';
+import api, { progressAPI, llmAPI, contentAPI, analyticsAPI } from '../services/api';
 import { useNotification } from '../context/NotificationContext';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
@@ -258,15 +258,23 @@ const DashboardPage = ({ onNavigate }) => {
   const handleGenerateAssessment = async () => {
     setGeneratingContent(true);
     try {
-      const assessment = await llmAPI.generateAssessment({
+      // Usar nova API de analytics
+      const response = await analyticsAPI.generateAssessment({
         area: currentProgress?.area || user?.current_track,
         subarea: currentProgress?.subarea || user?.current_subarea,
         level: currentProgress?.level || 'iniciante',
-        question_count: 10
+        question_count: 10,
+        difficulty: 'adaptive' // Adapta baseado no desempenho
       });
       
       showSuccess('Avaliação gerada com sucesso!');
-      onNavigate?.('assessment', { assessment });
+      
+      // Navegar para página de avaliação com os dados
+      onNavigate?.('assessment', { 
+        assessmentId: response.assessment_id,
+        assessment: response.assessment,
+        metadata: response.metadata
+      });
     } catch (error) {
       showError('Erro ao gerar avaliação: ' + error.message);
     } finally {
@@ -274,40 +282,80 @@ const DashboardPage = ({ onNavigate }) => {
     }
   };
 
-  // Gerar plano de estudos
   const handleGenerateLearningPath = async () => {
     setGeneratingContent(true);
     try {
-      const learningPath = await llmAPI.generateLearningPath({
-        current_area: currentProgress?.area || user?.current_track,
-        current_level: currentProgress?.level || 'iniciante',
-        goals: user?.learning_goals || [],
-        time_available: 'flexible',
-        duration_weeks: 4
+      // CORREÇÃO: Usar analyticsAPI ao invés de llmAPI
+      const response = await analyticsAPI.generateLearningPath({
+        duration_weeks: 4,
+        goals: [
+          "Dominar conceitos fundamentais",
+          "Desenvolver projetos práticos",
+          "Preparar para próximo nível"
+        ],
+        focus_area: currentProgress?.subarea || user?.current_subarea,
+        include_projects: true
       });
       
       showSuccess('Plano de estudos criado!');
-      onNavigate?.('learning-path', { path: learningPath });
+      
+      // Navegar com os dados corretos
+      onNavigate?.('learning-path', { 
+        pathId: response.path_id,
+        path: response.learning_path,
+        personalization: response.personalization
+      });
     } catch (error) {
       showError('Erro ao gerar plano: ' + error.message);
     } finally {
       setGeneratingContent(false);
     }
   };
-
+    // Adicionar nova função para carregar métricas otimizadas
+  const loadDashboardMetrics = useCallback(async () => {
+    try {
+      const metrics = await analyticsAPI.getDashboardMetrics('week');
+      
+      // Atualizar estados com métricas otimizadas
+      if (metrics.today_stats) {
+        setTodayProgress(metrics.today_stats);
+      }
+      
+      if (metrics.week_stats) {
+        setWeeklyGoal({
+          target: 5,
+          completed: metrics.week_stats.lessons_completed || 0
+        });
+      }
+      
+      // Você pode adicionar mais atualizações de estado aqui
+      console.log('📊 Métricas do dashboard carregadas:', metrics);
+      
+    } catch (error) {
+      console.error('Erro ao carregar métricas:', error);
+    }
+  }, []);
   // Gerar sessão de estudo focada
   const handleGenerateStudySession = async () => {
     setGeneratingContent(true);
     try {
-      const session = await llmAPI.generateStudySession({
-        topic: currentContent?.title || 'Tópico atual',
+      // Usar nova API de analytics
+      const response = await analyticsAPI.generateStudySession({
+        topic: currentContent?.title || null, // null = sistema escolhe o melhor tópico
         duration_minutes: 30,
+        session_type: 'mixed', // mixed, theory, practice
         difficulty: currentProgress?.level || 'iniciante',
         include_practice: true
       });
       
       showSuccess('Sessão de estudo criada!');
-      onNavigate?.('study-session', { session });
+      
+      // Navegar para página da sessão
+      onNavigate?.('study-session', { 
+        sessionId: response.session_id,
+        session: response.session,
+        personalization: response.personalization
+      });
     } catch (error) {
       showError('Erro ao criar sessão: ' + error.message);
     } finally {
@@ -321,7 +369,12 @@ const DashboardPage = ({ onNavigate }) => {
       updateRecentBadges();
     }
   }, [updateRecentBadges]);
-
+  // Adicionar ao useEffect de inicialização
+  useEffect(() => {
+    if (isInitialized) {
+      loadDashboardMetrics();
+    }
+  }, [isInitialized, loadDashboardMetrics]);
   // ✅ CORREÇÃO: Effect para carregar conteúdo APENAS quando progresso mudar
   useEffect(() => {
     if (currentProgress && isInitialized && !loadingContent) {

@@ -1,4 +1,4 @@
-// App.jsx - VERSÃO CORRIGIDA PARA FLUXO DE NAVEGAÇÃO
+// App.jsx - VERSÃO ATUALIZADA COM TODAS AS PÁGINAS
 import React, { useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppProvider } from './context/AppContext';
@@ -15,6 +15,9 @@ import LearningPage from './pages/LearningPage';
 import ProjectsPage from './pages/ProjectsPage';
 import ResourcesPage from './pages/ResourcesPage';
 import TeacherPage from './pages/TeacherPage';
+import AssessmentPage from './pages/AssessmentPage';
+import StudySessionPage from './pages/StudySessionPage';
+import LearningPathPage from './pages/LearningPathPage';
 
 // Components
 import Layout from './components/layout/Layout';
@@ -26,7 +29,7 @@ import { useNavigation } from './hooks/useNavigation';
 // Main App Router Component
 function AppRouter() {
   const { isAuthenticated, isLoading, user } = useAuth();
-  const { currentView, navigate } = useNavigation('dashboard');
+  const { currentView, navigate, navigationState } = useNavigation('dashboard');
   
   console.log('🔍 AppRouter Debug:', { 
     isAuthenticated, 
@@ -36,6 +39,7 @@ function AppRouter() {
     hasCurrentTrack: !!user?.current_track,
     hasCurrentSubarea: !!user?.current_subarea,
     currentView,
+    navigationState,
     timestamp: new Date().toISOString()
   });
 
@@ -141,9 +145,10 @@ function AppRouter() {
 
 // Routes for authenticated users
 function AppRoutes() {
-  const { currentView, navigate } = useNavigation('dashboard');
+  const { currentView, navigate, navigationState } = useNavigation('dashboard');
 
   console.log('🧭 Current view:', currentView);
+  console.log('📦 Navigation state:', navigationState);
 
   // Render view baseado no estado atual
   const renderView = () => {
@@ -151,7 +156,7 @@ function AppRoutes() {
       case 'dashboard':
         return <DashboardPage onNavigate={navigate} />;
       case 'learning':
-        return <LearningPage onNavigate={navigate} />;
+        return <LearningPage onNavigate={navigate} navigationState={navigationState} />;
       case 'areas':
         return <AreaSelectionPage onNavigate={navigate} />;
       case 'feedback':
@@ -159,7 +164,7 @@ function AppRoutes() {
       case 'achievements':
         return <AchievementsPage onNavigate={navigate} />;
       case 'projects':
-        return <ProjectsPage onNavigate={navigate} />;
+        return <ProjectsPage onNavigate={navigate} navigationState={navigationState} />;
       case 'resources':
         return <ResourcesPage onNavigate={navigate} />;
       case 'mapping':
@@ -174,6 +179,15 @@ function AppRoutes() {
         );
       case 'teacher':
         return <TeacherPage onNavigate={navigate} />;
+      case 'assessment':
+        console.log('📋 Renderizando AssessmentPage com navigationState:', navigationState);
+        return <AssessmentPage onNavigate={navigate} navigationState={navigationState} />;
+      case 'study-session':
+        console.log('📚 Renderizando StudySessionPage com navigationState:', navigationState);
+        return <StudySessionPage onNavigate={navigate} navigationState={navigationState} />;
+      case 'learning-path':
+        console.log('🗺️ Renderizando LearningPathPage com navigationState:', navigationState);
+        return <LearningPathPage onNavigate={navigate} navigationState={navigationState} />;
       case 'profile':
         // Temporariamente redirecionar para dashboard até criar ProfilePage
         console.warn('ProfilePage não implementada, redirecionando para dashboard');
@@ -181,6 +195,14 @@ function AppRoutes() {
       case 'settings':
         // Temporariamente redirecionar para dashboard até criar SettingsPage
         console.warn('SettingsPage não implementada, redirecionando para dashboard');
+        return <DashboardPage onNavigate={navigate} />;
+      case 'community':
+        // Temporariamente redirecionar para dashboard até criar CommunityPage
+        console.warn('CommunityPage não implementada, redirecionando para dashboard');
+        return <DashboardPage onNavigate={navigate} />;
+      case 'progress-details':
+        // Temporariamente redirecionar para dashboard até criar ProgressDetailsPage
+        console.warn('ProgressDetailsPage não implementada, redirecionando para dashboard');
         return <DashboardPage onNavigate={navigate} />;
       default:
         console.warn(`View desconhecida: ${currentView}, redirecionando para dashboard`);
