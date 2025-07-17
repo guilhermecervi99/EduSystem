@@ -459,10 +459,85 @@ export const achievementsAPI = {
   },
 };
 
+  
+// Correção para o projectsAPI em api.js
 
-// O objeto projectsAPI completo deve ficar assim:
 export const projectsAPI = {
-  // Método para criar projeto
+  // Listar projetos do usuário
+  getUserProjects: async (statusFilter = null) => {
+    try {
+      const params = new URLSearchParams();
+      if (statusFilter && statusFilter !== 'all') {
+        params.append('status_filter', statusFilter);
+      }
+      
+      const url = params.toString() ? `/projects/?${params.toString()}` : '/projects/';
+      const response = await api.get(url);
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao buscar projetos:', error);
+      throw error;
+    }
+  },
+
+  // Buscar projetos disponíveis
+  getAvailableProjects: async (area, subarea, level = 'iniciante', showAllLevels = false) => {
+    try {
+      console.log('📋 Buscando projetos disponíveis para:', { area, subarea, level, showAllLevels });
+      
+      // Validar parâmetros
+      if (!area || !subarea) {
+        console.warn('⚠️ Área ou subárea não fornecida');
+        return {
+          area: area || 'Não definida',
+          subarea: subarea || 'Não definida',
+          current_level: level,
+          show_all_levels: showAllLevels,
+          available_projects: [],
+          total_count: 0,
+          accessible_count: 0,
+          user_completed_levels: [],
+          message: 'Área ou subárea não definida'
+        };
+      }
+      
+      // Construir URL base com área e subárea
+      const baseUrl = `/projects/available/${encodeURIComponent(area)}/${encodeURIComponent(subarea)}`;
+      
+      // Adicionar parâmetros de query
+      const params = new URLSearchParams();
+      params.append('level', level);
+      params.append('show_all_levels', showAllLevels.toString());
+      
+      const fullUrl = `${baseUrl}?${params.toString()}`;
+      console.log('🔗 URL completa:', fullUrl);
+      
+      const response = await api.get(fullUrl);
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao buscar projetos disponíveis:', error);
+      
+      // Se o erro for 404, retornar estrutura vazia ao invés de propagar o erro
+      if (error.response?.status === 404) {
+        console.warn(`⚠️ Nenhum projeto encontrado para ${area}/${subarea}`);
+        return {
+          area: area,
+          subarea: subarea,
+          current_level: level,
+          show_all_levels: showAllLevels,
+          available_projects: [],
+          total_count: 0,
+          accessible_count: 0,
+          user_completed_levels: [],
+          message: `Nenhum projeto disponível para ${area} - ${subarea}`
+        };
+      }
+      
+      throw error;
+    }
+  },
+
+  // Criar novo projeto
   createProject: async (projectData) => {
     try {
       const response = await api.post('/projects/', projectData);
@@ -473,21 +548,7 @@ export const projectsAPI = {
     }
   },
 
-  // Listar projetos do usuário
-  getUserProjects: async (status = null) => {
-    try {
-      const params = {};
-      if (status) params.status_filter = status;
-      
-      const response = await api.get('/projects/', { params });
-      return response.data;
-    } catch (error) {
-      console.error('Erro ao buscar projetos:', error);
-      throw error;
-    }
-  },
-
-  // Obter detalhes de um projeto
+  // Obter detalhes do projeto
   getProjectDetails: async (projectId) => {
     try {
       const response = await api.get(`/projects/${projectId}`);
@@ -520,10 +581,10 @@ export const projectsAPI = {
     }
   },
 
-  // Enviar feedback sobre projeto
-  submitProjectFeedback: async (projectId, feedback) => {
+  // Enviar feedback do projeto
+  submitProjectFeedback: async (projectId, feedbackData) => {
     try {
-      const response = await api.post(`/projects/${projectId}/feedback`, feedback);
+      const response = await api.post(`/projects/${projectId}/feedback`, feedbackData);
       return response.data;
     } catch (error) {
       console.error('Erro ao enviar feedback:', error);
@@ -531,25 +592,23 @@ export const projectsAPI = {
     }
   },
 
-  // Buscar projetos disponíveis
-  getAvailableProjects: async (area, subarea, level = 'iniciante') => {
-    try {
-      const response = await api.get(`/projects/available/${area}/${subarea}`, {
-        params: { level }
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Erro ao buscar projetos disponíveis:', error);
-      throw error;
-    }
-  },
-
   // Buscar projetos
   searchProjects: async (query, filters = {}) => {
     try {
-      const response = await api.get('/projects/search', {
-        params: { query, ...filters }
-      });
+      const params = new URLSearchParams();
+      params.append('query', query);
+      
+      if (filters.project_type) {
+        params.append('project_type', filters.project_type);
+      }
+      if (filters.status) {
+        params.append('status', filters.status);
+      }
+      if (filters.limit) {
+        params.append('limit', filters.limit.toString());
+      }
+      
+      const response = await api.get(`/projects/search?${params.toString()}`);
       return response.data;
     } catch (error) {
       console.error('Erro ao buscar projetos:', error);
@@ -557,7 +616,6 @@ export const projectsAPI = {
     }
   }
 };
-
 // LLM/Professor Virtual
 export const llmAPI = {
   async askTeacher(question, context = '') {

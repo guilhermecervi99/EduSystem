@@ -158,7 +158,8 @@ const LearningPage = ({ onNavigate }) => {
   const [loadingTeacher, setLoadingTeacher] = useState(false);
   const [completingLesson, setCompletingLesson] = useState(false);
   const [showSpecializationChoice, setShowSpecializationChoice] = useState(false);
-  
+  const [showLevelCompletionModal, setShowLevelCompletionModal] = useState(false);
+  const [completedLevelInfo, setCompletedLevelInfo] = useState(null);
   // Estados para navegação melhorada
   const [viewMode, setViewMode] = useState('current');
   const [subareaDetails, setSubareaDetails] = useState(null);
@@ -2186,6 +2187,145 @@ const ContentAnalysisTools = React.memo(() => {
   );
 });
 
+const LevelCompletionModal = React.memo(() => {
+  if (!showLevelCompletionModal) return null;
+  
+  const currentLevel = progressInfo?.level || 'iniciante';
+  const levelsOrder = ['iniciante', 'intermediário', 'avançado'];
+  const currentIndex = levelsOrder.indexOf(currentLevel);
+  const hasNextLevel = currentIndex < levelsOrder.length - 1;
+  const nextLevel = hasNextLevel ? levelsOrder[currentIndex + 1] : null;
+  
+  const handleStayInLevel = () => {
+    setShowLevelCompletionModal(false);
+    // Navegar para a área de projetos do nível atual
+    onNavigate?.('projects');
+  };
+  
+  const handleAdvanceLevel = async () => {
+    if (!hasNextLevel) {
+      setShowLevelCompletionModal(false);
+      setShowSpecializationChoice(true);
+      return;
+    }
+    
+    try {
+      setLocalIsNavigating(true);
+      
+      const navigationData = {
+        area: progressInfo.area,
+        subarea: progressInfo.subarea,
+        level: nextLevel,
+        module_index: 0,
+        lesson_index: 0,
+        step_index: 0
+      };
+      
+      await navigateAndUpdateProgress(navigationData);
+      
+      showSuccess(`Avançando para o nível ${nextLevel}!`);
+      
+      // Limpar cache e recarregar dados
+      requestCache.current.clear();
+      setLevelData(null);
+      await loadLevelData(nextLevel);
+      await loadCurrentContent();
+      
+      setShowLevelCompletionModal(false);
+    } catch (error) {
+      console.error('Erro ao avançar nível:', error);
+      showError('Erro ao avançar de nível');
+    } finally {
+      setLocalIsNavigating(false);
+    }
+  };
+  
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto">
+      <div className="flex items-center justify-center min-h-screen p-4">
+        <div className="fixed inset-0 bg-black opacity-50" />
+        
+        <div className="relative bg-white rounded-lg max-w-lg w-full p-8">
+          <div className="text-center mb-6">
+            <Award className="h-20 w-20 text-yellow-500 mx-auto mb-4" />
+            <h2 className="text-3xl font-bold text-gray-900 mb-2">
+              Parabéns! 🎉
+            </h2>
+            <p className="text-lg text-gray-600">
+              Você completou todos os módulos do nível {currentLevel}!
+            </p>
+          </div>
+          
+          <div className="space-y-4 mb-8">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <h3 className="font-semibold text-blue-900 mb-2">
+                🎯 Projeto Final Disponível
+              </h3>
+              <p className="text-sm text-blue-700">
+                Agora você pode fazer o projeto final do nível {currentLevel} 
+                para consolidar seus conhecimentos!
+              </p>
+            </div>
+            
+            {hasNextLevel && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <h3 className="font-semibold text-green-900 mb-2">
+                  📈 Próximo Nível Desbloqueado
+                </h3>
+                <p className="text-sm text-green-700">
+                  Você também pode avançar para o nível {nextLevel} 
+                  e continuar sua jornada!
+                </p>
+              </div>
+            )}
+          </div>
+          
+          <div className="space-y-3">
+            <Button
+              fullWidth
+              size="lg"
+              onClick={handleStayInLevel}
+              leftIcon={<Target className="h-5 w-5" />}
+            >
+              Fazer Projeto do Nível {currentLevel}
+            </Button>
+            
+            {hasNextLevel ? (
+              <Button
+                fullWidth
+                size="lg"
+                variant="outline"
+                onClick={handleAdvanceLevel}
+                rightIcon={<ArrowRight className="h-5 w-5" />}
+              >
+                Avançar para Nível {nextLevel}
+              </Button>
+            ) : (
+              <Button
+                fullWidth
+                size="lg"
+                variant="outline"
+                onClick={handleAdvanceLevel}
+                rightIcon={<Star className="h-5 w-5" />}
+              >
+                Ver Especializações
+              </Button>
+            )}
+            
+            <Button
+              fullWidth
+              variant="ghost"
+              onClick={() => setShowLevelCompletionModal(false)}
+            >
+              Decidir Depois
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 const ContentNavigation = React.memo(() => {
   console.log('🧭 ContentNavigation - Renderizando navegação de conteúdo');
   if (!subareaDetails && !loadingStructure) return null;
@@ -2803,6 +2943,7 @@ return (
     {/* Modais */}
     <AssessmentModal />
     <SpecializationChoiceModal />
+    <LevelCompletionModal />
   </div>
 );
 };
