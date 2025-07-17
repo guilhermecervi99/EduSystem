@@ -459,58 +459,103 @@ export const achievementsAPI = {
   },
 };
 
-// Projetos
+
+// O objeto projectsAPI completo deve ficar assim:
 export const projectsAPI = {
-  async getUserProjects(statusFilter = null, projectType = null, limit = 20) {
-    const params = {};
-    if (statusFilter) params.status_filter = statusFilter;
-    if (projectType) params.project_type = projectType;
-    params.limit = limit;
-
-    const response = await api.get('/projects/', { params });
-    return response.data;
+  // Método para criar projeto
+  createProject: async (projectData) => {
+    try {
+      const response = await api.post('/projects/', projectData);
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao criar projeto:', error);
+      throw error;
+    }
   },
 
-  async createProject(projectData) {
-    const response = await api.post('/projects/', projectData);
-    return response.data;
+  // Listar projetos do usuário
+  getUserProjects: async (status = null) => {
+    try {
+      const params = {};
+      if (status) params.status_filter = status;
+      
+      const response = await api.get('/projects/', { params });
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao buscar projetos:', error);
+      throw error;
+    }
   },
 
-  async getProjectDetails(projectId) {
-    const response = await api.get(`/projects/${projectId}`);
-    return response.data;
+  // Obter detalhes de um projeto
+  getProjectDetails: async (projectId) => {
+    try {
+      const response = await api.get(`/projects/${projectId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao buscar detalhes do projeto:', error);
+      throw error;
+    }
   },
 
-  async updateProject(projectId, updateData) {
-    const response = await api.put(`/projects/${projectId}`, updateData);
-    return response.data;
+  // Atualizar projeto
+  updateProject: async (projectId, updateData) => {
+    try {
+      const response = await api.put(`/projects/${projectId}`, updateData);
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao atualizar projeto:', error);
+      throw error;
+    }
   },
 
-  async completeProject(projectId, submissionData) {
-    const response = await api.post(`/projects/${projectId}/complete`, submissionData);
-    return response.data;
+  // Completar projeto
+  completeProject: async (projectId, completionData) => {
+    try {
+      const response = await api.post(`/projects/${projectId}/complete`, completionData);
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao completar projeto:', error);
+      throw error;
+    }
   },
 
-  async submitProjectFeedback(projectId, feedbackData) {
-    const response = await api.post(`/projects/${projectId}/feedback`, feedbackData);
-    return response.data;
+  // Enviar feedback sobre projeto
+  submitProjectFeedback: async (projectId, feedback) => {
+    try {
+      const response = await api.post(`/projects/${projectId}/feedback`, feedback);
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao enviar feedback:', error);
+      throw error;
+    }
   },
 
-  async getAvailableProjects(area, subarea, level = 'iniciante') {
-    const response = await api.get(`/projects/available/${area}/${subarea}`, {
-      params: { level },
-    });
-    return response.data;
+  // Buscar projetos disponíveis
+  getAvailableProjects: async (area, subarea, level = 'iniciante') => {
+    try {
+      const response = await api.get(`/projects/available/${area}/${subarea}`, {
+        params: { level }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao buscar projetos disponíveis:', error);
+      throw error;
+    }
   },
 
-  async searchProjects(query, projectType = null, status = null, limit = 10) {
-    const params = { query, limit };
-    if (projectType) params.project_type = projectType;
-    if (status) params.status = status;
-
-    const response = await api.get('/projects/search', { params });
-    return response.data;
-  },
+  // Buscar projetos
+  searchProjects: async (query, filters = {}) => {
+    try {
+      const response = await api.get('/projects/search', {
+        params: { query, ...filters }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao buscar projetos:', error);
+      throw error;
+    }
+  }
 };
 
 // LLM/Professor Virtual
