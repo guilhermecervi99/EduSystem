@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Menu, 
   Search, 
@@ -12,13 +12,30 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useApp } from '../../context/AppContext';
-import Button from '../common/Button';
+import { useNotification } from '../../context/NotificationContext';
 
-const Header = () => {
+const Header = ({ onNavigate }) => {
   const { user, logout } = useAuth();
-  const { toggleSidebar, sidebarOpen } = useApp();
+  const { toggleSidebar } = useApp();
+  const { notifications, unreadCount, markAllAsRead } = useNotification();
+  
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Fechar menus ao clicar fora
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (!event.target.closest('.user-menu-container')) {
+        setShowUserMenu(false);
+      }
+      if (!event.target.closest('.notifications-container')) {
+        setShowNotifications(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -29,6 +46,14 @@ const Header = () => {
   const handleLogout = async () => {
     setShowUserMenu(false);
     await logout();
+  };
+
+  const handleNotificationClick = (notification) => {
+    setShowNotifications(false);
+    if (notification.link) {
+      const view = notification.link.startsWith('/') ? notification.link.substring(1) : notification.link;
+      onNavigate?.(view);
+    }
   };
 
   return (
@@ -83,17 +108,40 @@ const Header = () => {
           )}
 
           {/* Notifications */}
-          <button className="relative p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors">
-            <Bell className="h-6 w-6" />
-            {/* Notification Badge */}
-            <span className="absolute top-1 right-1 h-2 w-2 bg-danger-500 rounded-full"></span>
-          </button>
+          <div className="relative notifications-container">
+            <button onClick={() => setShowNotifications(!showNotifications)} className="relative p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors">
+              <Bell className="h-6 w-6" />
+              {unreadCount > 0 && (
+                <span className="absolute top-1 right-1 h-3 w-3 flex items-center justify-center text-white bg-danger-500 rounded-full text-[8px] font-bold">{unreadCount}</span>
+              )}
+            </button>
+            {showNotifications && (
+              <div className="absolute right-0 mt-2 w-80 md:w-96 bg-white border border-gray-200 rounded-lg shadow-lg z-50 animate-slide-down">
+                <div className="flex justify-between items-center p-3 border-b">
+                  <h3 className="font-semibold text-gray-800">Notificações</h3>
+                  {unreadCount > 0 && <button onClick={markAllAsRead} className="text-xs text-primary-600 hover:underline">Marcar todas como lidas</button>}
+                </div>
+                <div className="max-h-80 overflow-y-auto">
+                  {notifications.length > 0 ? (
+                    notifications.map(n => (
+                      <div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-3 border-b last:border-b-0 hover:bg-gray-50 cursor-pointer ${!n.is_read ? 'bg-primary-50' : ''}`}>
+                        <p className="text-sm text-gray-800">{n.message}</p>
+                        <p className="text-xs text-gray-500 mt-1">{new Date(n.created_at).toLocaleString('pt-BR')}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-center text-sm text-gray-500 p-6">Nenhuma notificação nova.</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* User Menu */}
-          <div className="relative">
+          <div className="relative user-menu-container">
             <button
               onClick={() => setShowUserMenu(!showUserMenu)}
-              className="flex items-center space-x-2 p-2 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors"
+              className="flex items-center space-x-2 p-1 pr-2 rounded-full text-gray-700 hover:bg-gray-100 transition-colors"
             >
               <div className="h-8 w-8 bg-primary-100 rounded-full flex items-center justify-center">
                 {user?.email ? (
@@ -104,12 +152,13 @@ const Header = () => {
                   <User className="h-4 w-4 text-primary-600" />
                 )}
               </div>
+              <span className="hidden md:inline font-medium text-sm">{user?.email?.split('@')[0]}</span>
               <ChevronDown className="h-4 w-4 text-gray-500" />
             </button>
 
             {/* Dropdown Menu */}
             {showUserMenu && (
-              <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+              <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50 animate-slide-down">
                 <div className="p-4 border-b border-gray-200">
                   <div className="flex items-center space-x-3">
                     <div className="h-12 w-12 bg-primary-100 rounded-full flex items-center justify-center">
@@ -134,7 +183,7 @@ const Header = () => {
 
                 <div className="p-2">
                   <button
-                    onClick={() => setShowUserMenu(false)}
+                    onClick={() => { setShowUserMenu(false); onNavigate?.('profile'); }}
                     className="w-full flex items-center space-x-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
                   >
                     <User className="h-4 w-4" />
@@ -142,7 +191,7 @@ const Header = () => {
                   </button>
 
                   <button
-                    onClick={() => setShowUserMenu(false)}
+                    onClick={() => { setShowUserMenu(false); onNavigate?.('settings'); }}
                     className="w-full flex items-center space-x-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
                   >
                     <Settings className="h-4 w-4" />

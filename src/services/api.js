@@ -902,6 +902,44 @@ export const analyticsAPI = {
     return response.data;
   }
 };
+export const communityAPI = {
+  async getTeams(params = {}) {
+    const response = await api.get('/community/teams', { params });
+    return response.data;
+  },
+
+  async createTeam(teamData) {
+    const response = await api.post('/community/teams', teamData);
+    return response.data;
+  },
+
+  async joinTeam(teamId) {
+    const response = await api.post(`/community/teams/${teamId}/join`);
+    return response.data;
+  },
+
+  async getMentors(params = {}) {
+    const response = await api.get('/community/mentors', { params });
+    return response.data;
+  },
+  
+  async requestMentorship(mentorId, message) {
+    const response = await api.post('/community/mentorship/request', { mentor_id: mentorId, message });
+    return response.data;
+  }
+};
+
+export const notificationsAPI = {
+    async getNotifications(params = {}) {
+        const response = await api.get('/notifications', { params });
+        return response.data;
+    },
+
+    async markAllAsRead() {
+        const response = await api.post('/notifications/mark-as-read');
+        return response.data;
+    }
+};
 
 console.log('✅ API module loaded successfully');
 

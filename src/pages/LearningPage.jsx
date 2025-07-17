@@ -181,10 +181,11 @@ const LearningPage = ({ onNavigate }) => {
   // Estados para feedback
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedbackRatings, setFeedbackRatings] = useState({
-    difficulty: 3,
-    clarity: 3,
-    engagement: 3,
-    relevance: 3
+    relevance: 1,
+    clarity: 1,
+    usefulness: 1,
+    difficulty: 1,
+    engagement: 1
   });
   const [suggestions, setSuggestions] = useState('');
   const [missingTopics, setMissingTopics] = useState('');
@@ -1035,34 +1036,186 @@ const analyzeContent = useCallback(async () => {
   }
 }, [currentContent, user.age, showError]);
 
+
+
+// Função para enviar feedback
 const submitFeedback = useCallback(async () => {
   console.log('💬 submitFeedback - Enviando feedback');
   try {
     const feedbackData = {
       session_type: 'study',
       content_id: currentContent?.id || 'current',
-      content_type: currentContent?.content_type,
-      ratings: feedbackRatings,
-      missing_topics: missingTopics.split(',').filter(t => t.trim()),
-      suggestions: suggestions
+      content_type: currentContent?.content_type || 'lesson',
+      ratings: {
+        // Campos obrigatórios
+        relevance: feedbackRatings.relevance,
+        clarity: feedbackRatings.clarity,
+        usefulness: feedbackRatings.usefulness,
+        // Campos opcionais
+        difficulty: feedbackRatings.difficulty,
+        engagement: feedbackRatings.engagement
+      },
+      missing_topics: missingTopics || null, // API espera string ou null
+      suggestions: suggestions || null, // API espera string ou null
+      context: {
+        area: progressInfo?.area || user?.current_track || 'Geral',
+        subarea: progressInfo?.subarea || user?.current_subarea || 'Geral',
+        level: progressInfo?.level || 'iniciante',
+        module: currentContent?.context?.module || 'Módulo Atual',
+        lesson: currentContent?.title || 'Lição Atual'
+      }
     };
     
     console.log('💬 Dados do feedback:', feedbackData);
     
-    await api.post('/feedback/collect', feedbackData);
+    const response = await api.post('/feedback/collect', feedbackData);
     
-    showSuccess('Obrigado pelo seu feedback!');
+    if (response.data.xp_earned) {
+      updateUser({
+        profile_xp: (user.profile_xp || 0) + response.data.xp_earned
+      });
+      showSuccess(`Obrigado pelo seu feedback! +${response.data.xp_earned} XP`);
+    } else {
+      showSuccess('Obrigado pelo seu feedback!');
+    }
+    
+    // Limpar formulário
     setShowFeedback(false);
+    setFeedbackRatings({
+      relevance: 3,
+      clarity: 3,
+      usefulness: 3,
+      difficulty: 3,
+      engagement: 3
+    });
+    setSuggestions('');
+    setMissingTopics('');
     
-    const adaptResult = await api.post('/feedback/adapt');
-    if (adaptResult.data.adapted) {
-      showInfo('Suas preferências foram atualizadas!');
+    // Tentar adaptar recomendações (não falhar se der erro)
+    try {
+      const adaptResult = await api.post('/feedback/adapt');
+      if (adaptResult.data.adapted) {
+        showInfo('Suas preferências foram atualizadas!');
+      }
+    } catch (adaptError) {
+      console.log('Erro ao adaptar (não crítico):', adaptError);
     }
   } catch (error) {
     console.error('❌ Erro ao enviar feedback:', error);
-    showError('Erro ao enviar feedback');
+    
+    // Tratamento específico para erro 422
+    if (error.response?.status === 422 && error.response?.data?.detail) {
+      const details = error.response.data.detail;
+      if (Array.isArray(details)) {
+        // Pydantic validation errors
+        const errorMessages = details.map(err => {
+          const field = err.loc?.join('.') || 'campo desconhecido';
+          return `${field}: ${err.msg}`;
+        }).join(', ');
+        showError(`Erro de validação: ${errorMessages}`);
+      } else {
+        showError(`Erro de validação: ${details}`);
+      }
+    } else {
+      const errorMessage = error.response?.data?.detail || error.message || 'Erro ao enviar feedback';
+      showError('Erro ao enviar feedback: ' + errorMessage);
+    }
   }
-}, [currentContent, feedbackRatings, missingTopics, suggestions, showError, showSuccess, showInfo]);
+}, [currentContent, progressInfo, user, feedbackRatings, missingTopics, suggestions, updateUser, showError, showSuccess, showInfo]);
+
+// Componente FeedbackWidget
+const FeedbackWidget = React.memo(() => {
+  console.log('💬 FeedbackWidget - Renderizando widget de feedback');
+  return (
+    <div className="mt-6 border-t pt-4">
+      <button
+        onClick={() => setShowFeedback(!showFeedback)}
+        className="text-sm text-primary-600 hover:text-primary-700"
+      >
+        💭 Dar feedback sobre este conteúdo
+      </button>
+      
+      {showFeedback && (
+        <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+          <h4 className="font-medium mb-3">Como foi sua experiência?</h4>
+          
+          <div className="space-y-3">
+            {Object.entries({
+              relevance: 'Relevância',
+              clarity: 'Clareza',
+              usefulness: 'Utilidade',
+              difficulty: 'Dificuldade',
+              engagement: 'Engajamento'
+            }).map(([key, label]) => (
+              <div key={key}>
+                <label className="text-sm font-medium text-gray-700">
+                  {label}
+                </label>
+                <div className="flex items-center space-x-2 mt-1">
+                  {[1, 2, 3, 4, 5].map((value) => (
+                    <button
+                      key={value}
+                      onClick={() => setFeedbackRatings(prev => ({ ...prev, [key]: value }))}
+                      className={`w-8 h-8 rounded-full ${
+                        feedbackRatings[key] >= value 
+                          ? 'bg-primary-600 text-white' 
+                          : 'bg-gray-200 text-gray-600'
+                      }`}
+                    >
+                      {value}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          <div className="mt-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Tópicos que gostaria de ver (separados por vírgula)
+            </label>
+            <input
+              type="text"
+              value={missingTopics}
+              onChange={(e) => setMissingTopics(e.target.value)}
+              placeholder="Ex: exemplos práticos, exercícios..."
+              className="w-full px-3 py-2 border rounded-lg text-sm"
+            />
+          </div>
+          
+          <div className="mt-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Sugestões
+            </label>
+            <textarea
+              value={suggestions}
+              onChange={(e) => setSuggestions(e.target.value)}
+              placeholder="Como podemos melhorar?"
+              className="w-full px-3 py-2 border rounded-lg text-sm"
+              rows="3"
+            />
+          </div>
+          
+          <div className="mt-4 flex justify-end space-x-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowFeedback(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              onClick={submitFeedback}
+            >
+              Enviar Feedback
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
 
 const handleAskTeacher = useCallback(async () => {
   console.log('👨‍🏫 handleAskTeacher - Perguntando ao professor');
@@ -2027,98 +2180,6 @@ const ContentAnalysisTools = React.memo(() => {
               </div>
             </div>
           )}
-        </div>
-      )}
-    </div>
-  );
-});
-
-const FeedbackWidget = React.memo(() => {
-  console.log('💬 FeedbackWidget - Renderizando widget de feedback');
-  return (
-    <div className="mt-6 border-t pt-4">
-      <button
-        onClick={() => setShowFeedback(!showFeedback)}
-        className="text-sm text-primary-600 hover:text-primary-700"
-      >
-        💭 Dar feedback sobre este conteúdo
-      </button>
-      
-      {showFeedback && (
-        <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-          <h4 className="font-medium mb-3">Como foi sua experiência?</h4>
-          
-          <div className="space-y-3">
-            {Object.entries({
-              difficulty: 'Dificuldade',
-              clarity: 'Clareza',
-              engagement: 'Engajamento',
-              relevance: 'Relevância'
-            }).map(([key, label]) => (
-              <div key={key}>
-                <label className="text-sm font-medium text-gray-700">
-                  {label}
-                </label>
-                <div className="flex items-center space-x-2 mt-1">
-                  {[1, 2, 3, 4, 5].map((value) => (
-                    <button
-                      key={value}
-                      onClick={() => setFeedbackRatings(prev => ({ ...prev, [key]: value }))}
-                      className={`w-8 h-8 rounded-full ${
-                        feedbackRatings[key] >= value 
-                          ? 'bg-primary-600 text-white' 
-                          : 'bg-gray-200 text-gray-600'
-                      }`}
-                    >
-                      {value}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-          
-          <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Tópicos que gostaria de ver (separados por vírgula)
-            </label>
-            <input
-              type="text"
-              value={missingTopics}
-              onChange={(e) => setMissingTopics(e.target.value)}
-              placeholder="Ex: exemplos práticos, exercícios..."
-              className="w-full px-3 py-2 border rounded-lg text-sm"
-            />
-          </div>
-          
-          <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Sugestões
-            </label>
-            <textarea
-              value={suggestions}
-              onChange={(e) => setSuggestions(e.target.value)}
-              placeholder="Como podemos melhorar?"
-              className="w-full px-3 py-2 border rounded-lg text-sm"
-              rows="3"
-            />
-          </div>
-          
-          <div className="mt-4 flex justify-end space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowFeedback(false)}
-            >
-              Cancelar
-            </Button>
-            <Button
-              size="sm"
-              onClick={submitFeedback}
-            >
-              Enviar Feedback
-            </Button>
-          </div>
         </div>
       )}
     </div>
