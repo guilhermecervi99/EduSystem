@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from './AuthContext';
-import { progressAPI, achievementsAPI } from '../services/api';
+import { progressAPI, achievementsAPI, authAPI, usersAPI } from '../services/api';
 
 // Estado inicial
 const initialState = {
@@ -229,6 +229,40 @@ export function AppProvider({ children }) {
     return Date.now() - timestamp < CACHE_TTL;
   }, []);
 
+  // 🔥 NOVA FUNÇÃO: Sincronizar dados do usuário (XP, Level, Badges)
+  const syncUserData = useCallback(async () => {
+    if (!user?.id) return;
+    
+    try {
+      console.log('🔄 Sincronizando dados do usuário...');
+      const currentUser = await authAPI.getCurrentUser();
+      
+      // Verificar se há diferenças
+      const hasChanges = 
+        currentUser.profile_xp !== user.profile_xp || 
+        currentUser.profile_level !== user.profile_level ||
+        JSON.stringify(currentUser.badges) !== JSON.stringify(user.badges);
+      
+      if (hasChanges) {
+        console.log('📊 Atualizando XP/Level/Badges:', {
+          oldXP: user.profile_xp,
+          newXP: currentUser.profile_xp,
+          oldLevel: user.profile_level,
+          newLevel: currentUser.profile_level
+        });
+        
+        updateUser({
+          profile_xp: currentUser.profile_xp,
+          profile_level: currentUser.profile_level,
+          badges: currentUser.badges,
+          total_badges: currentUser.badges?.length || 0
+        });
+      }
+    } catch (error) {
+      console.error('❌ Erro ao sincronizar dados do usuário:', error);
+    }
+  }, [user?.id, user?.profile_xp, user?.profile_level, updateUser]);
+
   // Função para forçar atualização do progresso (usada após navegação)
   const forceUpdateProgress = useCallback((newProgress) => {
     console.log('🔄 Forçando atualização do progresso:', newProgress);
@@ -276,6 +310,9 @@ export function AppProvider({ children }) {
       if (progress && progress.area && progress.subarea && progress.level !== undefined) {
         dispatch({ type: APP_ACTIONS.SET_PROGRESS, payload: progress });
         
+        // 🔥 MELHORIA: Sincronizar dados do usuário após carregar progresso
+        await syncUserData();
+        
         // Verificar se houve mudança significativa
         if (state.currentProgress) {
           const changed = (
@@ -321,7 +358,7 @@ export function AppProvider({ children }) {
     } finally {
       activeOperationsRef.current.delete(operationKey);
     }
-  }, [isAuthenticated, user, state.lastProgressUpdate, state.currentProgress, state.isNavigating, isCacheValid]);
+  }, [isAuthenticated, user, state.lastProgressUpdate, state.currentProgress, state.isNavigating, isCacheValid, syncUserData]);
 
   // Função específica para navegação
   const navigateAndUpdateProgress = useCallback(async (navigationData) => {
@@ -396,6 +433,10 @@ export function AppProvider({ children }) {
       console.log('🏆 Carregando conquistas...');
       const achievements = await achievementsAPI.getUserAchievements();
       dispatch({ type: APP_ACTIONS.SET_ACHIEVEMENTS, payload: achievements });
+      
+      // 🔥 MELHORIA: Sincronizar dados do usuário após carregar conquistas
+      await syncUserData();
+      
       console.log('✅ Conquistas carregadas:', achievements);
       return achievements;
     } catch (error) {
@@ -405,7 +446,7 @@ export function AppProvider({ children }) {
     } finally {
       activeOperationsRef.current.delete(operationKey);
     }
-  }, [isAuthenticated, user, state.lastAchievementsUpdate, state.achievements, isCacheValid]);
+  }, [isAuthenticated, user, state.lastAchievementsUpdate, state.achievements, isCacheValid, syncUserData]);
 
   const loadStatistics = useCallback(async (forceRefresh = false) => {
     if (!isAuthenticated || !user) return null;
@@ -429,6 +470,10 @@ export function AppProvider({ children }) {
       console.log('📈 Carregando estatísticas...');
       const statistics = await progressAPI.getStatistics(user.id); 
       dispatch({ type: APP_ACTIONS.SET_STATISTICS, payload: statistics });
+      
+      // 🔥 MELHORIA: Sincronizar dados do usuário após carregar estatísticas
+      await syncUserData();
+      
       console.log('✅ Estatísticas carregadas:', statistics);
       return statistics;
     } catch (error) {
@@ -438,7 +483,7 @@ export function AppProvider({ children }) {
     } finally {
       activeOperationsRef.current.delete(operationKey);
     }
-  }, [isAuthenticated, user, state.lastStatisticsUpdate, state.statistics, isCacheValid]);
+  }, [isAuthenticated, user, state.lastStatisticsUpdate, state.statistics, isCacheValid, syncUserData]);
 
   const loadNextSteps = useCallback(async () => {
     if (!isAuthenticated || !user) return [];
@@ -547,9 +592,12 @@ export function AppProvider({ children }) {
       if (result.new_badges && result.new_badges.length > 0) {
         await loadAchievements(true);
         
+        // 🔥 MELHORIA: Atualizar XP imediatamente se ganhou
         if (result.xp_earned) {
+          const newXP = (user.profile_xp || 0) + result.xp_earned;
           updateUser({
-            profile_xp: (user.profile_xp || 0) + result.xp_earned,
+            profile_xp: newXP,
+            profile_level: result.new_level || user.profile_level
           });
         }
 
@@ -571,6 +619,11 @@ export function AppProvider({ children }) {
       
       const newBadges = await checkNewAchievements();
       
+      // 🔥 MELHORIA: Atualizar XP e level imediatamente
+      if (result.xp_earned || result.new_level) {
+        await syncUserData();
+      }
+      
       return {
         ...result,
         newBadges,
@@ -579,7 +632,7 @@ export function AppProvider({ children }) {
       console.error('Erro ao completar lição:', error);
       throw error;
     }
-  }, [loadProgress, checkNewAchievements]);
+  }, [loadProgress, checkNewAchievements, syncUserData]);
 
   const advanceProgress = useCallback(async (stepType) => {
     try {
@@ -587,12 +640,36 @@ export function AppProvider({ children }) {
       
       await loadProgress(true);
       
+      // 🔥 MELHORIA: Sincronizar dados se ganhou XP
+      if (result.xp_earned) {
+        await syncUserData();
+      }
+      
       return result;
     } catch (error) {
       console.error('Erro ao avançar progresso:', error);
       throw error;
     }
-  }, [loadProgress]);
+  }, [loadProgress, syncUserData]);
+
+  // 🔥 NOVA FUNÇÃO: Refresh completo dos dados
+  const refreshAllData = useCallback(async () => {
+    console.log('🔄 Executando refresh completo dos dados...');
+    
+    try {
+      await Promise.allSettled([
+        loadProgress(true),
+        loadAchievements(true),
+        loadStatistics(true),
+        loadNextSteps(),
+        syncUserData()
+      ]);
+      
+      console.log('✅ Refresh completo concluído');
+    } catch (error) {
+      console.error('❌ Erro no refresh completo:', error);
+    }
+  }, [loadProgress, loadAchievements, loadStatistics, loadNextSteps, syncUserData]);
 
   // UI Actions
   const toggleSidebar = useCallback(() => {
@@ -638,6 +715,18 @@ export function AppProvider({ children }) {
     }
   }, []);
 
+  // 🔥 MELHORIA: Auto-sync periódico do XP (a cada 2 minutos)
+  useEffect(() => {
+    if (!isAuthenticated || !user) return;
+    
+    const interval = setInterval(() => {
+      console.log('⏰ Auto-sync de dados do usuário...');
+      syncUserData();
+    }, 120000); // 2 minutos
+    
+    return () => clearInterval(interval);
+  }, [isAuthenticated, user, syncUserData]);
+
   // Valor do contexto
   const contextValue = {
     // Estado
@@ -664,6 +753,8 @@ export function AppProvider({ children }) {
     
     // Utilities
     isCacheValid,
+    syncUserData,
+    refreshAllData,
   };
 
   return (

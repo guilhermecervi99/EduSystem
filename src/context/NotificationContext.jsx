@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
 import { X, CheckCircle, AlertCircle, AlertTriangle, Info, Award } from 'lucide-react';
 import { NOTIFICATION_TYPES } from '../utils/constants';
+import { notificationsAPI } from '../services/api';
 
 // Estado inicial mais completo
 const initialState = {
@@ -110,50 +111,22 @@ export const useNotification = () => {
 export function NotificationProvider({ children }) {
   const [state, dispatch] = useReducer(notificationReducer, initialState);
 
-  // Simula a busca de notificações persistentes do backend ao iniciar
+  // Buscar notificações do backend ao iniciar
   useEffect(() => {
-    // Em uma aplicação real, você faria uma chamada à API aqui
     const fetchNotifications = async () => {
       try {
-        // const response = await fetch('/api/notifications');
-        // const data = await response.json();
-        // dispatch({ type: NOTIFICATION_ACTIONS.SET_NOTIFICATIONS, payload: data });
-        
-        // Mock de notificações para desenvolvimento
-        const mockNotifications = [
-          { 
-            id: 'notif-1', 
-            message: "Você desbloqueou a conquista 'Iniciante Curioso'!", 
-            type: "award", 
-            is_read: false, 
-            created_at: new Date(Date.now() - 3600000).toISOString(), 
-            link: "/achievements" 
-          },
-          { 
-            id: 'notif-2', 
-            message: "Seu relatório semanal de progresso está pronto.", 
-            type: "info", 
-            is_read: true, 
-            created_at: new Date(Date.now() - 86400000 * 3).toISOString(), 
-            link: "/progress-details" 
-          },
-          {
-            id: 'notif-3',
-            message: "Nova atualização no seu projeto 'Aplicativo de Tarefas'",
-            type: "info",
-            is_read: false,
-            created_at: new Date(Date.now() - 7200000).toISOString(),
-            link: "/projects"
-          }
-        ];
-        
-        dispatch({ type: NOTIFICATION_ACTIONS.SET_NOTIFICATIONS, payload: mockNotifications });
+        const notifications = await notificationsAPI.getNotifications();
+        dispatch({ type: NOTIFICATION_ACTIONS.SET_NOTIFICATIONS, payload: notifications });
       } catch (error) {
         console.error('Erro ao buscar notificações:', error);
       }
     };
 
     fetchNotifications();
+    
+    // Atualizar a cada 30 segundos
+    const interval = setInterval(fetchNotifications, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   // Função para adicionar um toast (pop-up)
@@ -195,34 +168,40 @@ export function NotificationProvider({ children }) {
 
     dispatch({ type: NOTIFICATION_ACTIONS.ADD_NOTIFICATION, payload: newNotification });
 
-    // Em uma aplicação real, você sincronizaria com o backend
-    // await notificationsAPI.create(newNotification);
+    // Não sincronizamos com o backend aqui porque as notificações
+    // são criadas pelo backend através dos eventos
 
     return id;
   }, []);
 
   // Função para remover uma notificação
-  const removeNotification = useCallback((id) => {
-    dispatch({ type: NOTIFICATION_ACTIONS.REMOVE_NOTIFICATION, payload: id });
-    
-    // Em uma aplicação real, você sincronizaria com o backend
-    // await notificationsAPI.delete(id);
+  const removeNotification = useCallback(async (id) => {
+    try {
+      await notificationsAPI.deleteNotification(id);
+      dispatch({ type: NOTIFICATION_ACTIONS.REMOVE_NOTIFICATION, payload: id });
+    } catch (error) {
+      console.error('Erro ao remover notificação:', error);
+    }
   }, []);
 
   // Função para marcar uma notificação como lida
-  const markAsRead = useCallback((id) => {
-    dispatch({ type: NOTIFICATION_ACTIONS.MARK_AS_READ, payload: id });
-    
-    // Em uma aplicação real, você sincronizaria com o backend
-    // await notificationsAPI.markAsRead(id);
+  const markAsRead = useCallback(async (id) => {
+    try {
+      await notificationsAPI.markAsRead(id);
+      dispatch({ type: NOTIFICATION_ACTIONS.MARK_AS_READ, payload: id });
+    } catch (error) {
+      console.error('Erro ao marcar como lida:', error);
+    }
   }, []);
 
   // Função para marcar todas as notificações como lidas
-  const markAllAsRead = useCallback(() => {
-    dispatch({ type: NOTIFICATION_ACTIONS.MARK_ALL_AS_READ });
-    
-    // Em uma aplicação real, você sincronizaria com o backend
-    // await notificationsAPI.markAllAsRead();
+  const markAllAsRead = useCallback(async () => {
+    try {
+      await notificationsAPI.markAllAsRead();
+      dispatch({ type: NOTIFICATION_ACTIONS.MARK_ALL_AS_READ });
+    } catch (error) {
+      console.error('Erro ao marcar todas como lidas:', error);
+    }
   }, []);
 
   // Função para limpar todos os toasts
@@ -231,12 +210,19 @@ export function NotificationProvider({ children }) {
   }, []);
 
   // Função para limpar todas as notificações
-  const clearAllNotifications = useCallback(() => {
-    dispatch({ type: NOTIFICATION_ACTIONS.CLEAR_ALL_NOTIFICATIONS });
-    
-    // Em uma aplicação real, você sincronizaria com o backend
-    // await notificationsAPI.clearAll();
-  }, []);
+  const clearAllNotifications = useCallback(async () => {
+    try {
+      // Remover do backend uma por uma
+      const deletePromises = state.notifications.map(n => 
+        notificationsAPI.deleteNotification(n.id)
+      );
+      await Promise.allSettled(deletePromises);
+      
+      dispatch({ type: NOTIFICATION_ACTIONS.CLEAR_ALL_NOTIFICATIONS });
+    } catch (error) {
+      console.error('Erro ao limpar notificações:', error);
+    }
+  }, [state.notifications]);
 
   // Funções de conveniência para toasts
   const showSuccess = useCallback((message, options = {}) => {
